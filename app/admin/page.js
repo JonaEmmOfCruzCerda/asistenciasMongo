@@ -11,7 +11,6 @@ import {
   ClockIcon,
   DocumentTextIcon,
   ExclamationCircleIcon,
-  PlusIcon,
   PencilIcon,
   TrashIcon,
   CheckIcon,
@@ -22,6 +21,9 @@ import {
   XCircleIcon,
   CircleStackIcon
 } from '@heroicons/react/24/outline';
+
+// Constante para offset de Jalisco (UTC-6)
+const JALISCO_OFFSET = -6;
 
 export default function AdminPage() {
   // Estados para asistencias
@@ -61,53 +63,72 @@ export default function AdminPage() {
   // Estado para la nueva tabla de verificación de asistencia
   const [attendanceCheckData, setAttendanceCheckData] = useState([]);
   const [attendanceCheckLoading, setAttendanceCheckLoading] = useState(false);
-  const [currentDate] = useState(() => {
-  return new Date().toLocaleDateString('es-MX', {
-    timeZone: 'America/Mexico_City'
-  });
-});
+  
+  // Función para obtener fecha actual en formato Jalisco (SEGURO PARA VERCEL)
+  const getCurrentJaliscoDate = () => {
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const dia = fechaJalisco.getUTCDate().toString().padStart(2, '0');
+    const mes = (fechaJalisco.getUTCMonth() + 1).toString().padStart(2, '0');
+    const año = fechaJalisco.getUTCFullYear();
+    
+    return `${dia}/${mes}/${año}`;
+  };
 
-  // Función para formatear fecha
-  // Función para formatear fecha con zona horaria de Jalisco
-const formatDateTime = (date) => {
-  return new Date(date).toLocaleString('es-MX', {
-    timeZone: 'America/Mexico_City',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-};
+  const [currentDate] = useState(() => getCurrentJaliscoDate());
 
-// Función para obtener hora actual de Jalisco
-const getCurrentJaliscoTime = () => {
-  return new Date().toLocaleTimeString('es-MX', {
-    timeZone: 'America/Mexico_City',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
+  // Función para formatear fecha con zona horaria SEGURA PARA VERCEL
+  const formatDateTime = (date) => {
+    const fecha = new Date(date);
+    const fechaJalisco = new Date(fecha.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const hora = fechaJalisco.getUTCHours().toString().padStart(2, '0');
+    const minutos = fechaJalisco.getUTCMinutes().toString().padStart(2, '0');
+    const segundos = fechaJalisco.getUTCSeconds().toString().padStart(2, '0');
+    
+    return `${hora}:${minutos}:${segundos}`;
+  };
 
-// En el componente, cambia la hora actual:
-<div className="text-sm text-gray-500 flex items-center">
-  <ClockIcon className="w-4 h-4 mr-1" />
-  Hora actual (Jalisco): {getCurrentJaliscoTime()}
-</div>
+  // Función para obtener hora actual de Jalisco (SEGURO PARA VERCEL)
+  const getCurrentJaliscoTime = () => {
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const hora = fechaJalisco.getUTCHours().toString().padStart(2, '0');
+    const minutos = fechaJalisco.getUTCMinutes().toString().padStart(2, '0');
+    
+    return `${hora}:${minutos}`;
+  };
+
+  // Función para convertir fecha UTC a fecha Jalisco string
+  const convertToJaliscoDateString = (date) => {
+    const fecha = new Date(date);
+    const fechaJalisco = new Date(fecha.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const dia = fechaJalisco.getUTCDate().toString().padStart(2, '0');
+    const mes = (fechaJalisco.getUTCMonth() + 1).toString().padStart(2, '0');
+    const año = fechaJalisco.getUTCFullYear();
+    
+    return `${dia}/${mes}/${año}`;
+  };
 
   // Función para verificar si un empleado registró antes de las 9:00 AM
   const checkAttendanceBefore9AM = (attendanceRecords) => {
     if (!attendanceRecords || attendanceRecords.length === 0) return false;
     
-    const today = new Date().toDateString();
-    const cutoffTime = new Date();
-    cutoffTime.setHours(9, 0, 0, 0); // 9:00 AM
+    const today = getCurrentJaliscoDate();
     
     for (const record of attendanceRecords) {
       const recordDate = new Date(record.marca_tiempo || record.timestamp);
+      const recordDateStr = convertToJaliscoDateString(recordDate);
       
       // Verificar si es hoy
-      if (recordDate.toDateString() === today) {
+      if (recordDateStr === today) {
+        const recordHour = new Date(recordDate.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000)).getUTCHours();
+        
         // Verificar si es antes de las 9:00 AM
-        if (recordDate < cutoffTime) {
+        if (recordHour < 9) {
           return true;
         }
       }
@@ -120,10 +141,12 @@ const getCurrentJaliscoTime = () => {
   const getTodayAttendanceType = (attendanceRecords) => {
     if (!attendanceRecords || attendanceRecords.length === 0) return 'Sin registro';
     
-    const today = new Date().toDateString();
-    const todayRecords = attendanceRecords.filter(record => 
-      new Date(record.marca_tiempo || record.timestamp).toDateString() === today
-    );
+    const today = getCurrentJaliscoDate();
+    const todayRecords = attendanceRecords.filter(record => {
+      const recordDate = new Date(record.marca_tiempo || record.timestamp);
+      const recordDateStr = convertToJaliscoDateString(recordDate);
+      return recordDateStr === today;
+    });
     
     if (todayRecords.length === 0) return 'Sin registro';
     
@@ -140,10 +163,12 @@ const getCurrentJaliscoTime = () => {
   const getTodayLastAttendanceTime = (attendanceRecords) => {
     if (!attendanceRecords || attendanceRecords.length === 0) return '';
     
-    const today = new Date().toDateString();
-    const todayRecords = attendanceRecords.filter(record => 
-      new Date(record.marca_tiempo || record.timestamp).toDateString() === today
-    );
+    const today = getCurrentJaliscoDate();
+    const todayRecords = attendanceRecords.filter(record => {
+      const recordDate = new Date(record.marca_tiempo || record.timestamp);
+      const recordDateStr = convertToJaliscoDateString(recordDate);
+      return recordDateStr === today;
+    });
     
     if (todayRecords.length === 0) return '';
     
@@ -152,10 +177,13 @@ const getCurrentJaliscoTime = () => {
              new Date(latest.marca_tiempo || latest.timestamp) ? current : latest;
     });
     
-    return new Date(latestRecord.marca_tiempo || latestRecord.timestamp).toLocaleTimeString('es-MX', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    const recordDate = new Date(latestRecord.marca_tiempo || latestRecord.timestamp);
+    const fechaJalisco = new Date(recordDate.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const hora = fechaJalisco.getUTCHours().toString().padStart(2, '0');
+    const minutos = fechaJalisco.getUTCMinutes().toString().padStart(2, '0');
+    
+    return `${hora}:${minutos}`;
   };
 
   // Función para cargar datos de verificación de asistencia
@@ -166,7 +194,7 @@ const getCurrentJaliscoTime = () => {
       const activeEmployees = employees.filter(emp => emp.activo);
       
       // Obtener registros de asistencia de hoy
-      const today = new Date().toLocaleDateString('es-MX');
+      const today = getCurrentJaliscoDate();
       const response = await fetch(`/api/asistencias?fecha=${today}&limite=500`);
       
       if (response.ok) {
@@ -250,7 +278,10 @@ const getCurrentJaliscoTime = () => {
       if (!statsResponse.ok) {
         const errorText = await statsResponse.text();
         console.error('❌ Error en estadísticas:', statsResponse.status, errorText);
-        throw new Error(`Error ${statsResponse.status}: ${errorText}`);
+        
+        // Intentar conectar directamente a las APIs individuales
+        await fetchDirectAPIs();
+        return;
       }
       
       const statsData = await statsResponse.json();
@@ -320,12 +351,70 @@ const getCurrentJaliscoTime = () => {
       });
       
       setAttendanceData([]);
-      
-      // Mostrar alerta al usuario
-      alert('Error al cargar datos. Por favor, intente de nuevo.');
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  // Función alternativa para conectar a APIs directamente si /api/estadisticas falla
+  const fetchDirectAPIs = async () => {
+    try {
+      console.log('🔄 Intentando conexión directa a APIs...');
+      
+      // Obtener empleados
+      const empleadosResponse = await fetch('/api/empleados');
+      let total_empleados = 0;
+      let empleados_activos = 0;
+      
+      if (empleadosResponse.ok) {
+        const empleados = await empleadosResponse.json();
+        total_empleados = empleados.length;
+        empleados_activos = empleados.filter(emp => emp.activo).length;
+        setEmployees(empleados);
+      }
+      
+      // Obtener asistencias
+      const asistenciasResponse = await fetch('/api/asistencias?limite=1000');
+      let total_asistencias = 0;
+      let asistencias_hoy = 0;
+      let empleados_unicos_hoy = new Set();
+      
+      if (asistenciasResponse.ok) {
+        const asistencias = await asistenciasResponse.json();
+        total_asistencias = asistencias.length;
+        
+        // Calcular asistencias de hoy
+        const today = getCurrentJaliscoDate();
+        const asistenciasHoy = asistencias.filter(a => a.fecha === today);
+        asistencias_hoy = asistenciasHoy.length;
+        
+        // Empleados únicos hoy
+        asistenciasHoy.forEach(a => {
+          if (a.numero_empleado) {
+            empleados_unicos_hoy.add(a.numero_empleado);
+          }
+        });
+        
+        setAttendanceData(asistencias);
+      }
+      
+      // Establecer estadísticas
+      setStats({
+        total_empleados,
+        empleados_activos,
+        total_asistencias,
+        asistencias_hoy,
+        empleados_unicos_hoy: empleados_unicos_hoy.size,
+        registros_por_area: {}
+      });
+      
+      setLastUpdated(new Date());
+      setDbStatus('conectado');
+      
+    } catch (error) {
+      console.error('❌ Error en conexión directa:', error);
+      setDbStatus('error');
     }
   };
 
@@ -529,108 +618,108 @@ const getCurrentJaliscoTime = () => {
   };
 
   const validateEmployeeForm = () => {
-  const errors = {};
-  
-  // Validar ID siempre (tanto para edición como para nuevo)
-  if (!employeeForm.numero_empleado.trim()) {
-    errors.numero_empleado = 'El número de empleado es requerido';
-  } else if (!/^\d+$/.test(employeeForm.numero_empleado.trim())) {
-    errors.numero_empleado = 'Debe ser un número válido (ej: 1, 2, 3...)';
-  } else if (parseInt(employeeForm.numero_empleado) < 1) {
-    errors.numero_empleado = 'El número debe ser mayor a 0';
-  }
-  
-  if (!employeeForm.nombre_completo.trim()) errors.nombre_completo = 'El nombre es requerido';
-  if (!employeeForm.area.trim()) errors.area = 'El área/departamento es requerido';
-  
-  // Verificar si el ID ya existe
-  if (employeeForm.isEditing) {
-    // Si está editando y cambió el número, verificar que el nuevo no exista
-    if (employeeForm.originalId !== employeeForm.numero_empleado) {
-      if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado)) {
-        errors.numero_empleado = 'Este número ya está registrado por otro empleado';
-      }
+    const errors = {};
+    
+    // Validar ID siempre (tanto para edición como para nuevo)
+    if (!employeeForm.numero_empleado.trim()) {
+      errors.numero_empleado = 'El número de empleado es requerido';
+    } else if (!/^\d+$/.test(employeeForm.numero_empleado.trim())) {
+      errors.numero_empleado = 'Debe ser un número válido (ej: 1, 2, 3...)';
+    } else if (parseInt(employeeForm.numero_empleado) < 1) {
+      errors.numero_empleado = 'El número debe ser mayor a 0';
     }
-  } else {
-    // Si es nuevo empleado, verificar que el número no exista
-    if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado)) {
-      errors.numero_empleado = 'Este número ya está registrado';
-    }
-  }
-  
-  setFormErrors(errors);
-  return Object.keys(errors).length === 0;
-};
-
-  const handleAddEmployee = async (e) => {
-  e.preventDefault();
-  
-  if (!validateEmployeeForm()) return;
-  
-  try {
-    // Preparar datos para enviar
-    const employeeData = {
-      numero_empleado: employeeForm.numero_empleado.trim(),
-      nombre_completo: employeeForm.nombre_completo.trim(),
-      area: employeeForm.area.trim(),
-      activo: employeeForm.activo === 'Sí'
-    };
     
-    console.log('📤 Enviando datos del empleado:', employeeData);
+    if (!employeeForm.nombre_completo.trim()) errors.nombre_completo = 'El nombre es requerido';
+    if (!employeeForm.area.trim()) errors.area = 'El área/departamento es requerido';
     
-    // Diferencia entre POST (crear) y PUT (editar)
-    let endpoint = '/api/empleados';
-    let method = 'POST';
-    
+    // Verificar si el ID ya existe
     if (employeeForm.isEditing) {
-      method = 'PUT';
-      // Para editar, necesitamos enviar el ID original para buscar
-      employeeData.id = employeeForm.numero_empleado.trim();
-      employeeData.id_original = employeeForm.originalId;
-    }
-    
-    const response = await fetch(endpoint, {
-      method: method,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(employeeData),
-    });
-    
-    const result = await response.json();
-    
-    if (response.ok) {
-      // Mostrar mensaje con el ID generado si aplica
-      let message = employeeForm.isEditing 
-        ? 'Empleado actualizado exitosamente' 
-        : 'Empleado agregado exitosamente';
-      
-      if (!employeeForm.isEditing && result.numero_generado) {
-        message = `Empleado agregado exitosamente con número: ${result.numero_generado}`;
-      } else if (employeeForm.isEditing) {
-        const changedNumber = employeeForm.numero_empleado !== employeeForm.originalId;
-        if (changedNumber) {
-          message = `Empleado actualizado exitosamente. Número cambiado de ${employeeForm.originalId} a ${employeeForm.numero_empleado}`;
-        } else {
-          message = `Empleado actualizado exitosamente (Número: ${employeeForm.numero_empleado})`;
+      // Si está editando y cambió el número, verificar que el nuevo no exista
+      if (employeeForm.originalId !== employeeForm.numero_empleado) {
+        if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado)) {
+          errors.numero_empleado = 'Este número ya está registrado por otro empleado';
         }
       }
-      
-      alert(message);
-      console.log('✅ Respuesta del servidor:', result);
-      
-      resetEmployeeForm();
-      fetchEmployees(); // Recargar lista
-      fetchDataFromDB(); // Actualizar estadísticas
     } else {
-      console.error('❌ Error del servidor:', result);
-      alert(result.error || 'Error al guardar empleado');
+      // Si es nuevo empleado, verificar que el número no exista
+      if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado)) {
+        errors.numero_empleado = 'Este número ya está registrado';
+      }
     }
-  } catch (error) {
-    console.error('❌ Error de conexión:', error);
-    alert('Error de conexión con el servidor');
-  }
-};
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    
+    if (!validateEmployeeForm()) return;
+    
+    try {
+      // Preparar datos para enviar
+      const employeeData = {
+        numero_empleado: employeeForm.numero_empleado.trim(),
+        nombre_completo: employeeForm.nombre_completo.trim(),
+        area: employeeForm.area.trim(),
+        activo: employeeForm.activo === 'Sí'
+      };
+      
+      console.log('📤 Enviando datos del empleado:', employeeData);
+      
+      // Diferencia entre POST (crear) y PUT (editar)
+      let endpoint = '/api/empleados';
+      let method = 'POST';
+      
+      if (employeeForm.isEditing) {
+        method = 'PUT';
+        // Para editar, necesitamos enviar el ID original para buscar
+        employeeData.id = employeeForm.numero_empleado.trim();
+        employeeData.id_original = employeeForm.originalId;
+      }
+      
+      const response = await fetch(endpoint, {
+        method: method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(employeeData),
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        // Mostrar mensaje con el ID generado si aplica
+        let message = employeeForm.isEditing 
+          ? 'Empleado actualizado exitosamente' 
+          : 'Empleado agregado exitosamente';
+        
+        if (!employeeForm.isEditing && result.numero_generado) {
+          message = `Empleado agregado exitosamente con número: ${result.numero_generado}`;
+        } else if (employeeForm.isEditing) {
+          const changedNumber = employeeForm.numero_empleado !== employeeForm.originalId;
+          if (changedNumber) {
+            message = `Empleado actualizado exitosamente. Número cambiado de ${employeeForm.originalId} a ${employeeForm.numero_empleado}`;
+          } else {
+            message = `Empleado actualizado exitosamente (Número: ${employeeForm.numero_empleado})`;
+          }
+        }
+        
+        alert(message);
+        console.log('✅ Respuesta del servidor:', result);
+        
+        resetEmployeeForm();
+        fetchEmployees(); // Recargar lista
+        fetchDataFromDB(); // Actualizar estadísticas
+      } else {
+        console.error('❌ Error del servidor:', result);
+        alert(result.error || 'Error al guardar empleado');
+      }
+    } catch (error) {
+      console.error('❌ Error de conexión:', error);
+      alert('Error de conexión con el servidor');
+    }
+  };
 
   const handleEditEmployee = (employee) => {
     setEditingEmployee(employee);
@@ -669,7 +758,7 @@ const getCurrentJaliscoTime = () => {
 
   const resetEmployeeForm = () => {
     setEmployeeForm({
-      numero_empleado: '', // Vacío para nuevos empleados (el backend generará el ID)
+      numero_empleado: '',
       nombre_completo: '',
       area: '',
       activo: 'Sí',
@@ -685,12 +774,12 @@ const getCurrentJaliscoTime = () => {
 
   // Función para verificar si debe resaltar la fila
   const shouldHighlightRow = (employee) => {
-    const now = new Date();
-    const cutoffTime = new Date();
-    cutoffTime.setHours(9, 0, 0, 0);
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    const currentHour = fechaJalisco.getUTCHours();
     
-    // Solo resaltar si es después de las 9:00 AM y antes de las 18:00 PM
-    if (now >= cutoffTime && now.getHours() < 18) {
+    // Solo resaltar si es después de las 9:00 AM y antes de las 18:00 PM (Jalisco time)
+    if (currentHour >= 9 && currentHour < 18) {
       return !employee.attendedToday || !employee.before9AM;
     }
     return false;
@@ -878,7 +967,7 @@ const getCurrentJaliscoTime = () => {
                 <p className="text-sm font-medium text-gray-600">Registros Hoy</p>
                 <p className="text-2xl font-bold text-gray-900">{stats.asistencias_hoy}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {new Date().toLocaleDateString('es-MX', { weekday: 'long' })}
+                  {getCurrentJaliscoDate()}
                 </p>
               </div>
             </div>
@@ -963,10 +1052,7 @@ const getCurrentJaliscoTime = () => {
                 </div>
                 <div className="text-sm text-gray-500 flex items-center">
                   <ClockIcon className="w-4 h-4 mr-1" />
-                  Hora actual: {new Date().toLocaleTimeString('es-MX', { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
+                  Hora actual (Jalisco): {getCurrentJaliscoTime()}
                 </div>
               </div>
             </div>
@@ -1155,42 +1241,41 @@ const getCurrentJaliscoTime = () => {
                   </div>
 
                   <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Número de Empleado *
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        name="numero_empleado"
-                        value={employeeForm.numero_empleado}
-                        onChange={handleEmployeeFormChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder={employeeForm.isEditing ? 
-                          "Número actual: " + employeeForm.originalId : 
-                          "Ingresa el número (ej: 1, 2, 3...)"}
-                        // QUITAR el disabled o cambiarlo a false:
-                        disabled={false}
-                      />
-                      {!employeeForm.isEditing && (
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                        </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número de Empleado *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          name="numero_empleado"
+                          value={employeeForm.numero_empleado}
+                          onChange={handleEmployeeFormChange}
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
+                          }`}
+                          placeholder={employeeForm.isEditing ? 
+                            "Número actual: " + employeeForm.originalId : 
+                            "Ingresa el número (ej: 1, 2, 3...)"}
+                          disabled={false}
+                        />
+                        {!employeeForm.isEditing && (
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      {formErrors.numero_empleado && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
                       )}
+                      <p className="mt-1 text-xs text-gray-500">
+                        {employeeForm.isEditing ? 
+                          "Puedes cambiar el número si es necesario" : 
+                          "Ingresa manualmente el número del empleado"}
+                      </p>
                     </div>
-                    {formErrors.numero_empleado && (
-                      <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
-                    )}
-                    <p className="mt-1 text-xs text-gray-500">
-                      {employeeForm.isEditing ? 
-                        "Puedes cambiar el número si es necesario" : 
-                        "Ingresa manualmente el número del empleado"}
-                    </p>
-                  </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
