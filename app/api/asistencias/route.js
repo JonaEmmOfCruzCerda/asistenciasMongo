@@ -106,25 +106,27 @@ export async function POST(solicitud) {
       );
     }
 
-    // Crear registro de asistencia CON HORA DE JALISCO (MÉXICO)
+    // **SOLUCIÓN: Usar una fecha localizada segura**
     const ahora = new Date();
     
-    // Usar zona horaria de México
-    const fechaStr = ahora.toLocaleDateString('es-MX', {
-      timeZone: 'America/Mexico_City' // Zona horaria de Jalisco
-    });
+    // Obtener fecha y hora en formato de Jalisco (UTC-6)
+    // En Vercel, usar toLocaleString con timeZone explícito puede fallar
+    // Mejor usar cálculo manual para Jalisco (UTC-6 o UTC-5 dependiendo de horario de verano)
+    const offsetJalisco = -6; // Jalisco generalmente es UTC-6
+    const fechaUTC = ahora;
+    const fechaJalisco = new Date(fechaUTC.getTime() + (offsetJalisco * 60 * 60 * 1000));
     
-    const horaStr = ahora.toLocaleTimeString('es-MX', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      timeZone: 'America/Mexico_City'
-    });
+    // Formatear manualmente para evitar problemas de zona horaria en Vercel
+    const fechaStr = fechaJalisco.toISOString().split('T')[0].split('-').reverse().join('/');
+    
+    const horaStr = fechaJalisco.getUTCHours().toString().padStart(2, '0') + ':' +
+                   fechaJalisco.getUTCMinutes().toString().padStart(2, '0') + ':' +
+                   fechaJalisco.getUTCSeconds().toString().padStart(2, '0');
 
     console.log('🕐 Fecha y hora registradas (Jalisco):', {
       fecha: fechaStr,
       hora: horaStr,
-      zonaHoraria: 'America/Mexico_City'
+      zonaHoraria: `UTC${offsetJalisco}`
     });
 
     const nuevaAsistencia = await Asistencia.create({
@@ -133,7 +135,7 @@ export async function POST(solicitud) {
       area_empleado: empleado.area,
       fecha: fechaStr,
       hora: horaStr,
-      marca_tiempo: ahora, // Guardar en UTC
+      marca_tiempo: fechaUTC, // Guardar en UTC
       tipo_registro: 'entrada'
     });
 
