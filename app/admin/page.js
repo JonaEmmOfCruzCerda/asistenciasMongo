@@ -7,7 +7,6 @@ import {
   ArrowDownTrayIcon,
   ChartBarIcon,
   ArrowPathIcon,
-  CloudIcon,
   UsersIcon,
   ClockIcon,
   DocumentTextIcon,
@@ -20,10 +19,9 @@ import {
   UserPlusIcon,
   UserGroupIcon,
   CheckCircleIcon,
-  XCircleIcon
+  XCircleIcon,
+  CircleStackIcon
 } from '@heroicons/react/24/outline';
-
-import AdminTable from '@/components/AdminTable';
 
 export default function AdminPage() {
   // Estados para asistencias
@@ -33,14 +31,15 @@ export default function AdminPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [stats, setStats] = useState({
-    totalEmployees: 0,
-    activeEmployees: 0,
-    totalAttendance: 0,
-    todayAttendance: 0,
-    uniqueEmployeesToday: 0
+    total_empleados: 0,
+    empleados_activos: 0,
+    total_asistencias: 0,
+    asistencias_hoy: 0,
+    empleados_unicos_hoy: 0,
+    registros_por_area: {}
   });
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [googleSheetsStatus, setGoogleSheetsStatus] = useState('conectando');
+  const [dbStatus, setDbStatus] = useState('conectando');
   
   // Estados para gestión de empleados
   const [employees, setEmployees] = useState([]);
@@ -50,10 +49,10 @@ export default function AdminPage() {
   
   // Formulario de empleado
   const [employeeForm, setEmployeeForm] = useState({
-    id: '',
-    name: '',
-    department: '',
-    active: 'Sí',
+    numero_empleado: '',
+    nombre_completo: '',
+    area: '',
+    activo: 'Sí',
     originalId: '',
     isEditing: false
   });
@@ -62,11 +61,11 @@ export default function AdminPage() {
   // Estado para la nueva tabla de verificación de asistencia
   const [attendanceCheckData, setAttendanceCheckData] = useState([]);
   const [attendanceCheckLoading, setAttendanceCheckLoading] = useState(false);
-  const [currentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [currentDate] = useState(new Date().toLocaleDateString('es-MX'));
 
   // Función para formatear fecha
   const formatDateTime = (date) => {
-    return new Date(date).toLocaleString('es-ES', {
+    return new Date(date).toLocaleString('es-MX', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit'
@@ -82,7 +81,7 @@ export default function AdminPage() {
     cutoffTime.setHours(9, 0, 0, 0); // 9:00 AM
     
     for (const record of attendanceRecords) {
-      const recordDate = new Date(record.timestamp);
+      const recordDate = new Date(record.marca_tiempo || record.timestamp);
       
       // Verificar si es hoy
       if (recordDate.toDateString() === today) {
@@ -102,17 +101,18 @@ export default function AdminPage() {
     
     const today = new Date().toDateString();
     const todayRecords = attendanceRecords.filter(record => 
-      new Date(record.timestamp).toDateString() === today
+      new Date(record.marca_tiempo || record.timestamp).toDateString() === today
     );
     
     if (todayRecords.length === 0) return 'Sin registro';
     
     // Obtener el último registro de hoy
     const latestRecord = todayRecords.reduce((latest, current) => {
-      return new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest;
+      return new Date(current.marca_tiempo || current.timestamp) > 
+             new Date(latest.marca_tiempo || latest.timestamp) ? current : latest;
     });
     
-    return latestRecord.type || 'entrada';
+    return latestRecord.tipo_registro || latestRecord.type || 'entrada';
   };
 
   // Función para obtener la hora del último registro de hoy
@@ -121,16 +121,17 @@ export default function AdminPage() {
     
     const today = new Date().toDateString();
     const todayRecords = attendanceRecords.filter(record => 
-      new Date(record.timestamp).toDateString() === today
+      new Date(record.marca_tiempo || record.timestamp).toDateString() === today
     );
     
     if (todayRecords.length === 0) return '';
     
     const latestRecord = todayRecords.reduce((latest, current) => {
-      return new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest;
+      return new Date(current.marca_tiempo || current.timestamp) > 
+             new Date(latest.marca_tiempo || latest.timestamp) ? current : latest;
     });
     
-    return new Date(latestRecord.timestamp).toLocaleTimeString('es-ES', {
+    return new Date(latestRecord.marca_tiempo || latestRecord.timestamp).toLocaleTimeString('es-MX', {
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -141,11 +142,11 @@ export default function AdminPage() {
     setAttendanceCheckLoading(true);
     try {
       // Obtener todos los empleados activos
-      const activeEmployees = employees.filter(emp => emp.active);
+      const activeEmployees = employees.filter(emp => emp.activo);
       
       // Obtener registros de asistencia de hoy
-      const today = new Date().toISOString().split('T')[0];
-      const response = await fetch(`/api/get-attendance?date=${today}`);
+      const today = new Date().toLocaleDateString('es-MX');
+      const response = await fetch(`/api/asistencias?fecha=${today}&limite=500`);
       
       if (response.ok) {
         const todayAttendance = await response.json();
@@ -154,7 +155,7 @@ export default function AdminPage() {
         const checkData = activeEmployees.map(employee => {
           // Filtrar registros de hoy para este empleado
           const employeeTodayRecords = todayAttendance.filter(record => 
-            record.employeeId === employee.id || record.employeeName === employee.name
+            record.numero_empleado === employee.numero_empleado
           );
           
           const attendedToday = employeeTodayRecords.length > 0;
@@ -163,9 +164,9 @@ export default function AdminPage() {
           const lastTime = getTodayLastAttendanceTime(employeeTodayRecords);
           
           return {
-            id: employee.id,
-            name: employee.name,
-            department: employee.department,
+            id: employee.numero_empleado,
+            name: employee.nombre_completo,
+            department: employee.area,
             attendedToday,
             before9AM,
             attendanceType,
@@ -181,9 +182,9 @@ export default function AdminPage() {
       } else {
         // Si hay error, crear datos básicos solo con empleados
         const checkData = activeEmployees.map(employee => ({
-          id: employee.id,
-          name: employee.name,
-          department: employee.department,
+          id: employee.numero_empleado,
+          name: employee.nombre_completo,
+          department: employee.area,
           attendedToday: false,
           before9AM: false,
           attendanceType: 'Sin registro',
@@ -196,11 +197,11 @@ export default function AdminPage() {
     } catch (error) {
       console.error('Error fetching attendance check data:', error);
       // Crear datos básicos en caso de error
-      const activeEmployees = employees.filter(emp => emp.active);
+      const activeEmployees = employees.filter(emp => emp.activo);
       const checkData = activeEmployees.map(employee => ({
-        id: employee.id,
-        name: employee.name,
-        department: employee.department,
+        id: employee.numero_empleado,
+        name: employee.nombre_completo,
+        department: employee.area,
         attendedToday: false,
         before9AM: false,
         attendanceType: 'Sin registro',
@@ -214,55 +215,93 @@ export default function AdminPage() {
     }
   };
 
-  // Obtener datos de Google Sheets
-  const fetchDataFromSheets = async () => {
+  // Obtener datos de MongoDB
+  const fetchDataFromDB = async () => {
     setRefreshing(true);
-    setGoogleSheetsStatus('conectando');
+    setDbStatus('conectando');
     
     try {
+      console.log('🔄 Iniciando carga de datos desde MongoDB...');
+      
       // Obtener estadísticas desde la API
-      const statsResponse = await fetch('/api/statistics');
-      if (!statsResponse.ok) throw new Error('Error en estadísticas');
+      const statsResponse = await fetch('/api/estadisticas');
+      
+      if (!statsResponse.ok) {
+        const errorText = await statsResponse.text();
+        console.error('❌ Error en estadísticas:', statsResponse.status, errorText);
+        throw new Error(`Error ${statsResponse.status}: ${errorText}`);
+      }
+      
       const statsData = await statsResponse.json();
-      setStats(statsData);
+      console.log('📊 Datos de estadísticas:', statsData);
+      
+      // Verificar si hay un error en los datos
+      if (statsData.error) {
+        console.warn('⚠️ Estadísticas con error:', statsData.error);
+        // Continuar con datos por defecto
+        setStats({
+          total_empleados: statsData.total_empleados || 0,
+          empleados_activos: statsData.empleados_activos || 0,
+          total_asistencias: statsData.total_asistencias || 0,
+          asistencias_hoy: statsData.asistencias_hoy || 0,
+          empleados_unicos_hoy: statsData.empleados_unicos_hoy || 0,
+          registros_por_area: statsData.registros_por_area || {}
+        });
+      } else {
+        setStats(statsData);
+      }
       
       // Obtener registros de asistencia con filtros
       const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
-      if (dateFilter) params.append('date', dateFilter);
+      if (searchTerm) params.append('buscar', searchTerm);
+      if (dateFilter) params.append('fecha', dateFilter);
+      params.append('limite', '100');
       
-      const attendanceResponse = await fetch(`/api/get-attendance?${params}`);
-      if (!attendanceResponse.ok) throw new Error('Error en asistencias');
-      const attendanceData = await attendanceResponse.json();
+      const attendanceResponse = await fetch(`/api/asistencias?${params}`);
       
-      // Procesar datos de Google Sheets
-      const processedData = attendanceData.map(record => ({
-        ...record,
-        employeeId: record.employeeId || record.id || '',
-        employeeName: record.employeeName || record.name || '',
-        date: record.date || new Date(record.timestamp).toLocaleDateString('es-ES'),
-        time: record.time || new Date(record.timestamp).toLocaleTimeString('es-ES'),
-        timestamp: record.timestamp || new Date().toISOString()
-      }));
+      if (!attendanceResponse.ok) {
+        console.error('❌ Error en asistencias:', attendanceResponse.status);
+        setAttendanceData([]);
+      } else {
+        const attendanceData = await attendanceResponse.json();
+        console.log(`📝 ${attendanceData.length} registros cargados`);
+        
+        // Procesar datos para mantener compatibilidad
+        const processedData = attendanceData.map(record => ({
+          ...record,
+          employeeId: record.numero_empleado || '',
+          employeeName: record.nombre_empleado || '',
+          date: record.fecha || '',
+          time: record.hora || '',
+          timestamp: record.marca_tiempo || new Date().toISOString(),
+          department: record.area_empleado || '',
+          type: record.tipo_registro || 'entrada'
+        }));
+        
+        setAttendanceData(processedData);
+      }
       
-      setAttendanceData(processedData);
       setLastUpdated(new Date());
-      setGoogleSheetsStatus('conectado');
+      setDbStatus('conectado');
       
     } catch (error) {
-      console.error('Error fetching data from Google Sheets:', error);
-      setGoogleSheetsStatus('error');
+      console.error('❌ Error fetching data from MongoDB:', error);
+      setDbStatus('error');
       
       // Mostrar datos de ejemplo si hay error
       setStats({
-        totalEmployees: 0,
-        activeEmployees: 0,
-        totalAttendance: 0,
-        todayAttendance: 0,
-        uniqueEmployeesToday: 0
+        total_empleados: 0,
+        empleados_activos: 0,
+        total_asistencias: 0,
+        asistencias_hoy: 0,
+        empleados_unicos_hoy: 0,
+        registros_por_area: {}
       });
       
       setAttendanceData([]);
+      
+      // Mostrar alerta al usuario
+      alert('Error al cargar datos. Por favor, intente de nuevo.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -273,10 +312,17 @@ export default function AdminPage() {
   const fetchEmployees = async () => {
     setEmployeesLoading(true);
     try {
-      const response = await fetch('/api/employees');
+      const response = await fetch('/api/empleados');
       if (response.ok) {
         const data = await response.json();
-        setEmployees(data);
+        console.log('👥 Empleados cargados:', data.length);
+        // Ordenar empleados por número ascendente
+        const sortedEmployees = data.sort((a, b) => 
+          parseInt(a.numero_empleado) - parseInt(b.numero_empleado)
+        );
+        setEmployees(sortedEmployees);
+      } else {
+        console.error('Error al cargar empleados:', response.status);
       }
     } catch (error) {
       console.error('Error al cargar empleados:', error);
@@ -287,11 +333,11 @@ export default function AdminPage() {
 
   // Cargar datos iniciales
   useEffect(() => {
-    fetchDataFromSheets();
+    fetchDataFromDB();
     fetchEmployees();
     
     // Actualizar automáticamente cada 30 segundos
-    const interval = setInterval(fetchDataFromSheets, 30000);
+    const interval = setInterval(fetchDataFromDB, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -305,16 +351,16 @@ export default function AdminPage() {
   // Función para exportar a CSV
   const exportToCSV = () => {
     try {
-      const headers = ['ID Empleado', 'Nombre', 'Departamento', 'Fecha', 'Hora', 'Tipo'];
+      const headers = ['Número Empleado', 'Nombre', 'Área', 'Fecha', 'Hora', 'Tipo'];
       const csvContent = [
         headers.join(','),
         ...attendanceData.map(row => [
-          row.employeeId,
-          `"${row.employeeName}"`,
-          `"${row.department || ''}"`,
-          row.date,
-          row.time,
-          row.type || 'entrada'
+          row.numero_empleado || row.employeeId,
+          `"${row.nombre_empleado || row.employeeName}"`,
+          `"${row.area_empleado || row.department || ''}"`,
+          row.fecha || row.date,
+          row.hora || row.time,
+          row.tipo_registro || row.type || 'entrada'
         ].join(','))
       ].join('\n');
 
@@ -339,14 +385,14 @@ export default function AdminPage() {
   // Exportar empleados a CSV
   const exportEmployeesToCSV = () => {
     try {
-      const headers = ['ID', 'Nombre', 'Departamento', 'Activo'];
+      const headers = ['Número Empleado', 'Nombre', 'Área', 'Activo'];
       const csvContent = [
         headers.join(','),
         ...employees.map(emp => [
-          emp.id,
-          `"${emp.name}"`,
-          `"${emp.department}"`,
-          emp.active ? 'Sí' : 'No'
+          emp.numero_empleado,
+          `"${emp.nombre_completo}"`,
+          `"${emp.area}"`,
+          emp.activo ? 'Sí' : 'No'
         ].join(','))
       ].join('\n');
 
@@ -370,7 +416,7 @@ export default function AdminPage() {
   // Exportar verificación de asistencia a CSV
   const exportAttendanceCheckToCSV = () => {
     try {
-      const headers = ['ID', 'Nombre', 'Departamento', 'Asistió Hoy', 'Antes de 9:00 AM', 'Tipo', 'Última Hora', 'Fecha Verificación'];
+      const headers = ['Número Empleado', 'Nombre', 'Área', 'Asistió Hoy', 'Antes de 9:00 AM', 'Tipo', 'Última Hora', 'Fecha Verificación'];
       const csvContent = [
         headers.join(','),
         ...attendanceCheckData.map(row => [
@@ -390,7 +436,7 @@ export default function AdminPage() {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `verificacion_asistencia_${currentDate}.csv`);
+      link.setAttribute('download', `verificacion_asistencia_${currentDate.replace(/\//g, '-')}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -405,19 +451,19 @@ export default function AdminPage() {
   // Función para aplicar filtros
   const applyFilters = (e) => {
     e.preventDefault();
-    fetchDataFromSheets();
+    fetchDataFromDB();
   };
 
   // Función para limpiar filtros
   const clearFilters = () => {
     setSearchTerm('');
     setDateFilter('');
-    fetchDataFromSheets();
+    fetchDataFromDB();
   };
 
-  // Función para obtener el estado de Google Sheets
-  const getSheetsStatus = () => {
-    switch (googleSheetsStatus) {
+  // Función para obtener el estado de la base de datos
+  const getDbStatus = () => {
+    switch (dbStatus) {
       case 'conectado':
         return { color: 'text-green-600', bg: 'bg-green-100', text: 'Conectado' };
       case 'conectando':
@@ -432,11 +478,14 @@ export default function AdminPage() {
   // Filtrar datos localmente
   const filteredData = attendanceData.filter(record => {
     const matchesSearch = 
-      record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.department?.toLowerCase().includes(searchTerm.toLowerCase());
+      (record.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (record.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (record.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       record.department?.toLowerCase().includes(searchTerm.toLowerCase()));
     
-    const matchesDate = !dateFilter || record.date === dateFilter;
+    const matchesDate = !dateFilter || record.fecha === dateFilter || record.date === dateFilter;
     
     return matchesSearch && matchesDate;
   });
@@ -461,18 +510,23 @@ export default function AdminPage() {
   const validateEmployeeForm = () => {
     const errors = {};
     
-    // Solo validar ID si se está editando
-    if (employeeForm.isEditing && !employeeForm.id.trim()) {
-      errors.id = 'El ID es requerido';
+    // Validar ID solo si estamos editando
+    if (employeeForm.isEditing) {
+      if (!employeeForm.numero_empleado.trim()) {
+        errors.numero_empleado = 'El número de empleado es requerido';
+      } else if (!/^\d+$/.test(employeeForm.numero_empleado.trim())) {
+        errors.numero_empleado = 'Debe ser un número válido';
+      }
     }
     
-    if (!employeeForm.name.trim()) errors.name = 'El nombre es requerido';
-    if (!employeeForm.department.trim()) errors.department = 'El departamento es requerido';
+    if (!employeeForm.nombre_completo.trim()) errors.nombre_completo = 'El nombre es requerido';
+    if (!employeeForm.area.trim()) errors.area = 'El área/departamento es requerido';
     
     // Verificar si el ID ya existe (solo cuando se está editando y cambió el ID)
-    if (employeeForm.isEditing && employeeForm.originalId !== employeeForm.id) {
-      if (employees.some(emp => emp.id === employeeForm.id && emp.id !== employeeForm.originalId)) {
-        errors.id = 'Este ID ya está registrado por otro empleado';
+    if (employeeForm.isEditing && employeeForm.originalId !== employeeForm.numero_empleado) {
+      if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado && 
+                              emp.numero_empleado !== employeeForm.originalId)) {
+        errors.numero_empleado = 'Este número ya está registrado por otro empleado';
       }
     }
     
@@ -488,23 +542,24 @@ export default function AdminPage() {
     try {
       // Preparar datos para enviar
       const employeeData = {
-        name: employeeForm.name.trim(),
-        department: employeeForm.department.trim(),
-        active: employeeForm.active === 'Sí',
-        isEditing: employeeForm.isEditing,
+        nombre_completo: employeeForm.nombre_completo.trim(),
+        area: employeeForm.area.trim(),
+        activo: employeeForm.activo === 'Sí',
+        // Para nuevos empleados, el backend generará el ID automáticamente
+        numero_empleado: employeeForm.isEditing ? employeeForm.numero_empleado.trim() : undefined
       };
       
-      // Solo enviar ID si estamos editando
+      // Si estamos editando, agregar el ID original para la búsqueda
       if (employeeForm.isEditing) {
-        employeeData.id = employeeForm.id.trim();
-        employeeData.originalId = employeeForm.originalId;
+        employeeData.id = employeeForm.numero_empleado.trim();
+        employeeData.id_original = employeeForm.originalId;
       }
       
       console.log('📤 Enviando datos del empleado:', employeeData);
       
       // Usar PUT para actualizaciones, POST para nuevos
       const method = employeeForm.isEditing ? 'PUT' : 'POST';
-      const endpoint = '/api/employees';
+      const endpoint = '/api/empleados';
       
       const response = await fetch(endpoint, {
         method: method,
@@ -522,8 +577,10 @@ export default function AdminPage() {
           ? 'Empleado actualizado exitosamente' 
           : 'Empleado agregado exitosamente';
         
-        if (!employeeForm.isEditing && result.generatedId) {
-          message = `Empleado agregado exitosamente con ID: ${result.generatedId}`;
+        if (!employeeForm.isEditing && result.numero_generado) {
+          message = `Empleado agregado exitosamente con número: ${result.numero_generado}`;
+        } else if (employeeForm.isEditing) {
+          message = `Empleado actualizado exitosamente (Número: ${employeeForm.numero_empleado})`;
         }
         
         alert(message);
@@ -531,7 +588,7 @@ export default function AdminPage() {
         
         resetEmployeeForm();
         fetchEmployees(); // Recargar lista
-        fetchDataFromSheets(); // Actualizar estadísticas
+        fetchDataFromDB(); // Actualizar estadísticas
       } else {
         const error = await response.json();
         console.error('❌ Error del servidor:', error);
@@ -546,11 +603,11 @@ export default function AdminPage() {
   const handleEditEmployee = (employee) => {
     setEditingEmployee(employee);
     setEmployeeForm({
-      id: employee.id,
-      name: employee.name,
-      department: employee.department,
-      active: employee.active ? 'Sí' : 'No',
-      originalId: employee.id,
+      numero_empleado: employee.numero_empleado,
+      nombre_completo: employee.nombre_completo,
+      area: employee.area,
+      activo: employee.activo ? 'Sí' : 'No',
+      originalId: employee.numero_empleado,
       isEditing: true
     });
     setShowEmployeeForm(true);
@@ -560,14 +617,14 @@ export default function AdminPage() {
     if (!confirm('¿Estás seguro de que deseas eliminar este empleado?')) return;
     
     try {
-      const response = await fetch(`/api/employees?id=${employeeId}`, {
+      const response = await fetch(`/api/empleados?id=${employeeId}`, {
         method: 'DELETE',
       });
       
       if (response.ok) {
         alert('Empleado eliminado exitosamente');
         fetchEmployees();
-        fetchDataFromSheets();
+        fetchDataFromDB();
       } else {
         const error = await response.json();
         alert(error.error || 'Error al eliminar empleado');
@@ -580,10 +637,10 @@ export default function AdminPage() {
 
   const resetEmployeeForm = () => {
     setEmployeeForm({
-      id: '', // Vacío para nuevos empleados (el backend generará el ID)
-      name: '',
-      department: '',
-      active: 'Sí',
+      numero_empleado: '', // Vacío para nuevos empleados (el backend generará el ID)
+      nombre_completo: '',
+      area: '',
+      activo: 'Sí',
       originalId: '',
       isEditing: false
     });
@@ -592,7 +649,7 @@ export default function AdminPage() {
     setShowEmployeeForm(false);
   };
 
-  const sheetsStatus = getSheetsStatus();
+  const dbStatusInfo = getDbStatus();
 
   // Función para verificar si debe resaltar la fila
   const shouldHighlightRow = (employee) => {
@@ -607,6 +664,72 @@ export default function AdminPage() {
     return false;
   };
 
+  // Componente simple para la tabla de asistencias
+  const AdminTable = ({ attendanceData, loading }) => {
+    if (loading) return <div>Cargando...</div>;
+    
+    return (
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Número Empleado
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Nombre
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Área
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Fecha
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Hora
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Tipo
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {attendanceData.map((record, index) => (
+              <tr key={index} className="hover:bg-gray-50">
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm font-medium text-gray-900">
+                    {record.numero_empleado || record.employeeId}
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="text-sm text-gray-900">{record.nombre_empleado || record.employeeName}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm text-gray-900">{record.area_empleado || record.department}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm text-gray-900">{record.fecha || record.date}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm text-gray-900">{record.hora || record.time}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    (record.tipo_registro || record.type) === 'entrada' 
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {record.tipo_registro || record.type || 'entrada'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Navbar */}
@@ -617,12 +740,12 @@ export default function AdminPage() {
               <div className="flex-shrink-0 flex items-center">
                 <ChartBarIcon className="h-8 w-8 text-blue-600 mr-3" />
                 <div>
-                  <span className="text-xl font-bold text-gray-800">Admin Panel</span>
+                  <span className="text-xl font-bold text-gray-800">Panel de Administración</span>
                   <div className="flex items-center mt-1">
-                    <CloudIcon className="h-4 w-4 mr-1" />
-                    <span className="text-xs text-gray-500">Google Sheets</span>
-                    <div className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${sheetsStatus.bg} ${sheetsStatus.color}`}>
-                      {sheetsStatus.text}
+                    <CircleStackIcon className="h-4 w-4 mr-1" />
+                    <span className="text-xs text-gray-500">MongoDB</span>
+                    <div className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${dbStatusInfo.bg} ${dbStatusInfo.color}`}>
+                      {dbStatusInfo.text}
                     </div>
                   </div>
                 </div>
@@ -631,7 +754,7 @@ export default function AdminPage() {
             <div className="flex items-center space-x-4">
               <button
                 onClick={() => {
-                  fetchDataFromSheets();
+                  fetchDataFromDB();
                   fetchEmployees();
                   fetchAttendanceCheckData();
                 }}
@@ -670,10 +793,10 @@ export default function AdminPage() {
                 {attendanceData.length} registros cargados
               </div>
             </div>
-            {googleSheetsStatus === 'error' && (
+            {dbStatus === 'error' && (
               <div className="flex items-center text-sm text-red-600">
                 <ExclamationCircleIcon className="w-4 h-4 mr-1" />
-                Error de conexión
+                Error de conexión con MongoDB
               </div>
             )}
           </div>
@@ -689,9 +812,9 @@ export default function AdminPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Empleados</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalEmployees}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.total_empleados}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  <span className="text-green-600 font-medium">{stats.activeEmployees}</span> activos
+                  <span className="text-green-600 font-medium">{stats.empleados_activos}</span> activos
                 </p>
               </div>
             </div>
@@ -705,8 +828,8 @@ export default function AdminPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Registros Totales</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalAttendance}</p>
-                <p className="text-xs text-gray-500 mt-1">En Google Sheets</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.total_asistencias}</p>
+                <p className="text-xs text-gray-500 mt-1">En base de datos</p>
               </div>
             </div>
           </div>
@@ -721,9 +844,9 @@ export default function AdminPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Registros Hoy</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.todayAttendance}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.asistencias_hoy}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {new Date().toLocaleDateString('es-ES', { weekday: 'long' })}
+                  {new Date().toLocaleDateString('es-MX', { weekday: 'long' })}
                 </p>
               </div>
             </div>
@@ -739,7 +862,7 @@ export default function AdminPage() {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Únicos Hoy</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.uniqueEmployeesToday}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.empleados_unicos_hoy}</p>
                 <p className="text-xs text-gray-500 mt-1">Empleados distintos</p>
               </div>
             </div>
@@ -756,8 +879,8 @@ export default function AdminPage() {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Asistencia Hoy</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {stats.activeEmployees > 0 
-                    ? `${Math.round((stats.uniqueEmployeesToday / stats.activeEmployees) * 100)}%`
+                  {stats.empleados_activos > 0 
+                    ? `${Math.round((stats.empleados_unicos_hoy / stats.empleados_activos) * 100)}%`
                     : '0%'
                   }
                 </p>
@@ -808,7 +931,7 @@ export default function AdminPage() {
                 </div>
                 <div className="text-sm text-gray-500 flex items-center">
                   <ClockIcon className="w-4 h-4 mr-1" />
-                  Hora actual: {new Date().toLocaleTimeString('es-ES', { 
+                  Hora actual: {new Date().toLocaleTimeString('es-MX', { 
                     hour: '2-digit', 
                     minute: '2-digit' 
                   })}
@@ -833,13 +956,13 @@ export default function AdminPage() {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          ID
+                          Número
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Nombre
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Departamento
+                          Área
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Asistió Hoy
@@ -948,7 +1071,7 @@ export default function AdminPage() {
                   <ExclamationCircleIcon className="w-4 h-4 text-red-500 mr-1" />
                   <span className="text-red-700">
                     {attendanceCheckData.filter(employee => shouldHighlightRow(employee)).length} 
-                    empleados pendientes
+                     empleados pendientes
                   </span>
                 </div>
               </div>
@@ -1002,20 +1125,20 @@ export default function AdminPage() {
                   <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        ID del Empleado {employeeForm.isEditing ? '*' : ''}
+                        Número de Empleado {employeeForm.isEditing ? '*' : ''}
                       </label>
                       <div className="relative">
                         <input
                           type="text"
-                          name="id"
-                          value={employeeForm.id}
+                          name="numero_empleado"
+                          value={employeeForm.numero_empleado}
                           onChange={handleEmployeeFormChange}
                           className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            formErrors.id ? 'border-red-500' : 'border-gray-300'
+                            formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
                           } ${employeeForm.isEditing ? 'bg-gray-100 text-gray-600' : 'bg-white'}`}
-                          placeholder={employeeForm.isEditing ? employeeForm.id : "Generado automáticamente"}
-                          disabled={employeeForm.isEditing}
-                          readOnly={!employeeForm.isEditing} // Solo lectura para nuevos empleados
+                          placeholder={employeeForm.isEditing ? employeeForm.numero_empleado : "Generado automáticamente (0, 1, 2...)"}
+                          disabled={!employeeForm.isEditing}
+                          readOnly={!employeeForm.isEditing}
                         />
                         {!employeeForm.isEditing && (
                           <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -1025,16 +1148,16 @@ export default function AdminPage() {
                           </div>
                         )}
                       </div>
-                      {formErrors.id && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.id}</p>
+                      {formErrors.numero_empleado && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
                       )}
                       {employeeForm.isEditing ? (
                         <p className="mt-1 text-xs text-gray-500">
-                          Para cambiar el ID, debe crear un nuevo empleado
+                          El número de empleado no se puede modificar
                         </p>
                       ) : (
                         <p className="mt-1 text-xs text-gray-500">
-                          El ID se generará automáticamente al guardar
+                          El número se generará automáticamente (0, 1, 2, 3...)
                         </p>
                       )}
                     </div>
@@ -1045,35 +1168,35 @@ export default function AdminPage() {
                       </label>
                       <input
                         type="text"
-                        name="name"
-                        value={employeeForm.name}
+                        name="nombre_completo"
+                        value={employeeForm.nombre_completo}
                         onChange={handleEmployeeFormChange}
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.name ? 'border-red-500' : 'border-gray-300'
+                          formErrors.nombre_completo ? 'border-red-500' : 'border-gray-300'
                         }`}
                         placeholder="Ej: Juan Pérez"
                       />
-                      {formErrors.name && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>
+                      {formErrors.nombre_completo && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.nombre_completo}</p>
                       )}
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Departamento *
+                        Área/Departamento *
                       </label>
                       <input
                         type="text"
-                        name="department"
-                        value={employeeForm.department}
+                        name="area"
+                        value={employeeForm.area}
                         onChange={handleEmployeeFormChange}
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.department ? 'border-red-500' : 'border-gray-300'
+                          formErrors.area ? 'border-red-500' : 'border-gray-300'
                         }`}
                         placeholder="Ej: Ventas, IT, RRHH"
                       />
-                      {formErrors.department && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.department}</p>
+                      {formErrors.area && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.area}</p>
                       )}
                     </div>
 
@@ -1082,8 +1205,8 @@ export default function AdminPage() {
                         Estado
                       </label>
                       <select
-                        name="active"
-                        value={employeeForm.active}
+                        name="activo"
+                        value={employeeForm.activo}
                         onChange={handleEmployeeFormChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
@@ -1127,8 +1250,8 @@ export default function AdminPage() {
                   </p>
                 </div>
                 <div className="text-sm text-gray-500">
-                  <CloudIcon className="w-4 h-4 inline mr-1" />
-                  Sincronizado con Google Sheets
+                  <CircleStackIcon className="w-4 h-4 inline mr-1" />
+                  Base de datos MongoDB
                 </div>
               </div>
             </div>
@@ -1156,13 +1279,13 @@ export default function AdminPage() {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          ID
+                          Número
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Nombre
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Departamento
+                          Área
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Estado
@@ -1174,25 +1297,25 @@ export default function AdminPage() {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {employees.map((employee) => (
-                        <tr key={employee.id} className="hover:bg-gray-50">
+                        <tr key={employee.numero_empleado} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
-                              {employee.id}
+                              {employee.numero_empleado}
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="text-sm text-gray-900">{employee.name}</div>
+                            <div className="text-sm text-gray-900">{employee.nombre_completo}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{employee.department}</div>
+                            <div className="text-sm text-gray-900">{employee.area}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              employee.active 
+                              employee.activo 
                                 ? 'bg-green-100 text-green-800' 
                                 : 'bg-red-100 text-red-800'
                             }`}>
-                              {employee.active ? 'Activo' : 'Inactivo'}
+                              {employee.activo ? 'Activo' : 'Inactivo'}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -1205,7 +1328,7 @@ export default function AdminPage() {
                                 <PencilIcon className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => handleDeleteEmployee(employee.id)}
+                                onClick={() => handleDeleteEmployee(employee.numero_empleado)}
                                 className="text-red-600 hover:text-red-900"
                                 title="Eliminar"
                               >
@@ -1240,7 +1363,7 @@ export default function AdminPage() {
                   <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Buscar por ID, nombre o departamento..."
+                    placeholder="Buscar por número, nombre o área..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="input-field pl-10"
@@ -1301,7 +1424,7 @@ export default function AdminPage() {
                     Historial de Asistencias
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    Datos en tiempo real desde Google Sheets
+                    Datos en tiempo real desde MongoDB
                     <span className="ml-2 text-gray-500">
                       • {filteredData.length} registros encontrados
                     </span>
@@ -1309,8 +1432,8 @@ export default function AdminPage() {
                 </div>
                 <div className="mt-2 sm:mt-0">
                   <div className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700">
-                    <CloudIcon className="w-4 h-4 mr-1" />
-                    Google Sheets
+                    <CircleStackIcon className="w-4 h-4 mr-1" />
+                    MongoDB
                   </div>
                 </div>
               </div>
@@ -1321,22 +1444,22 @@ export default function AdminPage() {
                 <div className="flex flex-col items-center justify-center py-12">
                   <div className="relative">
                     <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4"></div>
-                    <CloudIcon className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-blue-600" />
+                    <CircleStackIcon className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-blue-600" />
                   </div>
-                  <p className="text-gray-600 mt-4">Conectando con Google Sheets...</p>
+                  <p className="text-gray-600 mt-4">Conectando con MongoDB...</p>
                   <p className="text-sm text-gray-500 mt-2">Obteniendo datos en tiempo real</p>
                 </div>
-              ) : googleSheetsStatus === 'error' ? (
+              ) : dbStatus === 'error' ? (
                 <div className="text-center py-12">
                   <ExclamationCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    Error de conexión con Google Sheets
+                    Error de conexión con MongoDB
                   </h3>
                   <p className="text-gray-600 mb-4">
-                    No se pudieron cargar los datos desde Google Sheets.
+                    No se pudieron cargar los datos desde la base de datos.
                   </p>
                   <button
-                    onClick={fetchDataFromSheets}
+                    onClick={fetchDataFromDB}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                   >
                     Reintentar conexión
@@ -1379,8 +1502,8 @@ export default function AdminPage() {
                     )}
                   </div>
                   <div className="flex items-center">
-                    <CloudIcon className="w-4 h-4 mr-1" />
-                    <span>Sincronizado con Google Sheets</span>
+                    <CircleStackIcon className="w-4 h-4 mr-1" />
+                    <span>Sincronizado con MongoDB</span>
                     {lastUpdated && (
                       <span className="ml-2 text-gray-500">
                         • Actualizado: {formatDateTime(lastUpdated)}

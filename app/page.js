@@ -9,336 +9,335 @@ import {
   LockClosedIcon,
   XMarkIcon,
   EyeIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  CircleStackIcon
 } from '@heroicons/react/24/outline';
 import AttendanceClock from '@/components/AttendanceClock';
 
 export default function Home() {
-  const [employeeId, setEmployeeId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [validating, setValidating] = useState(false);
-  const [message, setMessage] = useState({ text: '', type: '' });
-  const [employeeInfo, setEmployeeInfo] = useState(null);
-  const [recentRegistrations, setRecentRegistrations] = useState([]);
+  const [numeroEmpleado, setNumeroEmpleado] = useState('');
+  const [cargando, setCargando] = useState(false);
+  const [validando, setValidando] = useState(false);
+  const [mensaje, setMensaje] = useState({ texto: '', tipo: '' });
+  const [informacionEmpleado, setInformacionEmpleado] = useState(null);
+  const [registrosRecientes, setRegistrosRecientes] = useState([]);
   
   // Estados para el modal de autenticación
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [mostrarModalAuth, setMostrarModalAuth] = useState(false);
+  const [contrasena, setContrasena] = useState('');
+  const [mostrarContrasena, setMostrarContrasena] = useState(false);
+  const [errorAuth, setErrorAuth] = useState('');
+  const [autenticando, setAutenticando] = useState(false);
 
   // Estado para verificar si ya registró asistencia
-  const [hasRecentAttendance, setHasRecentAttendance] = useState(false);
-  const [nextAllowedTime, setNextAllowedTime] = useState(null);
+  const [tieneAsistenciaReciente, setTieneAsistenciaReciente] = useState(false);
+  const [proximoRegistroPermitido, setProximoRegistroPermitido] = useState(null);
 
   // Verificar empleado en tiempo real Y si ya tiene asistencia reciente
   useEffect(() => {
-    const verifyEmployee = async () => {
-      if (employeeId.trim().length >= 1) {
-        setValidating(true);
+    const verificarEmpleado = async () => {
+      if (numeroEmpleado.trim().length >= 1) {
+        setValidando(true);
         try {
-          const response = await fetch(`/api/register-attendance?employeeId=${employeeId}`);
-          if (response.ok) {
-            const data = await response.json();
-            setEmployeeInfo({
-              name: data.name,
-              department: data.department
+          const respuesta = await fetch(`/api/registrar-asistencia?employeeId=${numeroEmpleado}`);
+          if (respuesta.ok) {
+            const datos = await respuesta.json();
+            setInformacionEmpleado({
+              nombre: datos.name,
+              area: datos.department
             });
             
             // Verificar si ya tiene asistencia reciente (menos de 20 horas)
-            const attendanceCheck = await checkRecentAttendance(employeeId);
-            setHasRecentAttendance(attendanceCheck.hasRecentAttendance);
+            const verificacionAsistencia = await verificarAsistenciaReciente(numeroEmpleado);
+            setTieneAsistenciaReciente(verificacionAsistencia.tiene_asistencia_reciente);
             
-            if (attendanceCheck.hasRecentAttendance) {
-              setMessage({ 
-                text: `Empleado encontrado: ${data.name} - Ya registró asistencia recientemente`, 
-                type: 'warning' 
+            if (verificacionAsistencia.tiene_asistencia_reciente) {
+              setMensaje({ 
+                texto: `Empleado encontrado: ${datos.name} - Ya registró asistencia recientemente`, 
+                tipo: 'warning' 
               });
-              setNextAllowedTime(attendanceCheck.nextAllowedTime);
+              setProximoRegistroPermitido(verificacionAsistencia.proximo_registro_permitido);
             } else {
-              setMessage({ 
-                text: `Empleado encontrado: ${data.name}`, 
-                type: 'info' 
+              setMensaje({ 
+                texto: `Empleado encontrado: ${datos.name}`, 
+                tipo: 'info' 
               });
-              setNextAllowedTime(null);
+              setProximoRegistroPermitido(null);
             }
           } else {
-            setEmployeeInfo(null);
-            setHasRecentAttendance(false);
-            setNextAllowedTime(null);
-            setMessage({ 
-              text: 'Empleado no encontrado en el sistema', 
-              type: 'error' 
+            setInformacionEmpleado(null);
+            setTieneAsistenciaReciente(false);
+            setProximoRegistroPermitido(null);
+            setMensaje({ 
+              texto: 'Empleado no encontrado en el sistema', 
+              tipo: 'error' 
             });
           }
         } catch (error) {
           console.error('Error verificando empleado:', error);
-          setEmployeeInfo(null);
-          setHasRecentAttendance(false);
-          setNextAllowedTime(null);
+          setInformacionEmpleado(null);
+          setTieneAsistenciaReciente(false);
+          setProximoRegistroPermitido(null);
         } finally {
-          setValidating(false);
+          setValidando(false);
         }
       } else {
-        setEmployeeInfo(null);
-        setHasRecentAttendance(false);
-        setNextAllowedTime(null);
-        setMessage({ text: '', type: '' });
+        setInformacionEmpleado(null);
+        setTieneAsistenciaReciente(false);
+        setProximoRegistroPermitido(null);
+        setMensaje({ texto: '', tipo: '' });
       }
     };
 
-    const debounceTimer = setTimeout(() => {
-      if (employeeId.trim()) {
-        verifyEmployee();
+    const timerDebounce = setTimeout(() => {
+      if (numeroEmpleado.trim()) {
+        verificarEmpleado();
       }
     }, 500);
 
-    return () => clearTimeout(debounceTimer);
-  }, [employeeId]);
+    return () => clearTimeout(timerDebounce);
+  }, [numeroEmpleado]);
 
   // Función para verificar asistencia reciente
-  // Función para verificar asistencia reciente
-const checkRecentAttendance = async (employeeId) => {
-  try {
-    const response = await fetch(`/api/check-attendance?employeeId=${employeeId}`);
-    if (response.ok) {
-      const data = await response.json();
-      console.log('📊 Respuesta de check-attendance:', data);
-      return {
-        hasRecentAttendance: data.hasRecentAttendance,
-        lastAttendance: data.lastAttendance,
-        nextAllowedTime: data.nextAllowedTime,
-        hoursRemaining: data.hoursRemaining,
-        details: data.details
-      };
-    } else {
-      const error = await response.json();
-      console.error('❌ Error en check-attendance:', error);
+  const verificarAsistenciaReciente = async (numeroEmpleado) => {
+    try {
+      const respuesta = await fetch(`/api/verificar-asistencia?numero_empleado=${numeroEmpleado}`);
+      if (respuesta.ok) {
+        const datos = await respuesta.json();
+        console.log('📊 Respuesta de verificar-asistencia:', datos);
+        return {
+          tiene_asistencia_reciente: datos.tiene_asistencia_reciente,
+          ultima_asistencia: datos.ultima_asistencia,
+          proximo_registro_permitido: datos.proximo_registro_permitido,
+          horas_restantes: datos.horas_restantes,
+          detalles: datos.detalles
+        };
+      } else {
+        const error = await respuesta.json();
+        console.error('❌ Error en verificar-asistencia:', error);
+      }
+    } catch (error) {
+      console.error('❌ Error verificando asistencia reciente:', error);
     }
-  } catch (error) {
-    console.error('❌ Error verificando asistencia reciente:', error);
-  }
-  return { 
-    hasRecentAttendance: false, 
-    lastAttendance: null, 
-    nextAllowedTime: null, 
-    hoursRemaining: 0 
+    return { 
+      tiene_asistencia_reciente: false, 
+      ultima_asistencia: null, 
+      proximo_registro_permitido: null, 
+      horas_restantes: 0 
+    };
   };
-};
 
   // Obtener registros recientes
   useEffect(() => {
-    fetchRecentRegistrations();
+    obtenerRegistrosRecientes();
   }, []);
 
-  const fetchRecentRegistrations = async () => {
+  const obtenerRegistrosRecientes = async () => {
     try {
-      const response = await fetch('/api/get-attendance?limit=5');
-      if (response.ok) {
-        const data = await response.json();
-        setRecentRegistrations(data);
+      const respuesta = await fetch('/api/asistencias?limite=5');
+      if (respuesta.ok) {
+        const datos = await respuesta.json();
+        setRegistrosRecientes(datos);
       }
     } catch (error) {
       console.error('Error obteniendo registros recientes:', error);
     }
   };
 
-  // Función para verificar la contraseña - Mejorada con verificación real
-  const verifyPassword = async (inputPassword) => {
-    const ADMIN_PASSWORD = '0810'; 
+  // Función para verificar la contraseña
+  const verificarContrasena = async (contrasenaInput) => {
+    const CONTRASENA_ADMIN = '0810'; 
     
-    // Simulación de verificación (en producción, deberías verificar en el backend)
     return new Promise((resolve) => {
       setTimeout(() => {
         // Verificación exacta de 4 dígitos
-        if (inputPassword.length !== 4) {
+        if (contrasenaInput.length !== 4) {
           resolve(false);
           return;
         }
         
         // Solo dígitos numéricos
-        if (!/^\d{4}$/.test(inputPassword)) {
+        if (!/^\d{4}$/.test(contrasenaInput)) {
           resolve(false);
           return;
         }
         
-        resolve(inputPassword === ADMIN_PASSWORD);
+        resolve(contrasenaInput === CONTRASENA_ADMIN);
       }, 500);
     });
   };
 
-  const handleAdminClick = (e) => {
+  const manejarClickAdmin = (e) => {
     e.preventDefault();
-    setShowAuthModal(true);
-    setPassword('');
-    setShowPassword(false);
-    setAuthError('');
+    setMostrarModalAuth(true);
+    setContrasena('');
+    setMostrarContrasena(false);
+    setErrorAuth('');
   };
 
-  const handlePasswordSubmit = async (e) => {
+  const manejarEnvioContrasena = async (e) => {
     e.preventDefault();
     
-    if (password.length !== 4) {
-      setAuthError('La contraseña debe tener exactamente 4 dígitos');
+    if (contrasena.length !== 4) {
+      setErrorAuth('La contraseña debe tener exactamente 4 dígitos');
       return;
     }
 
-    if (!/^\d{4}$/.test(password)) {
-      setAuthError('La contraseña solo puede contener números');
+    if (!/^\d{4}$/.test(contrasena)) {
+      setErrorAuth('La contraseña solo puede contener números');
       return;
     }
 
-    setIsAuthenticating(true);
+    setAutenticando(true);
     
     try {
-      const isValid = await verifyPassword(password);
+      const esValida = await verificarContrasena(contrasena);
       
-      if (isValid) {
+      if (esValida) {
         // Redirigir al panel de administración
         window.location.href = '/admin';
       } else {
-        setAuthError('Contraseña incorrecta. Inténtalo de nuevo.');
-        setPassword('');
-        setShowPassword(false);
+        setErrorAuth('Contraseña incorrecta. Inténtalo de nuevo.');
+        setContrasena('');
+        setMostrarContrasena(false);
       }
     } catch (error) {
-      setAuthError('Error al verificar contraseña. Por favor, intenta nuevamente.');
+      setErrorAuth('Error al verificar contraseña. Por favor, intenta nuevamente.');
       console.error('Error:', error);
     } finally {
-      setIsAuthenticating(false);
+      setAutenticando(false);
     }
   };
 
-  const handleKeyPress = (e) => {
+  const manejarTeclaPresionada = (e) => {
     // Permitir solo números
     if (!/[0-9]/.test(e.key) && e.key !== 'Backspace' && e.key !== 'Delete') {
       e.preventDefault();
     }
     
     // Autosubmit al completar 4 dígitos
-    if (password.length === 3 && /[0-9]/.test(e.key)) {
-      const newPassword = password + e.key;
-      setPassword(newPassword);
+    if (contrasena.length === 3 && /[0-9]/.test(e.key)) {
+      const nuevaContrasena = contrasena + e.key;
+      setContrasena(nuevaContrasena);
       
       // Pequeño delay para que se vea el último dígito
       setTimeout(() => {
-        const fakeEvent = { preventDefault: () => {} };
-        handlePasswordSubmit(fakeEvent);
+        const eventoFalso = { preventDefault: () => {} };
+        manejarEnvioContrasena(eventoFalso);
       }, 100);
     }
   };
 
-  const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword);
+  const alternarVisibilidadContrasena = () => {
+    setMostrarContrasena(!mostrarContrasena);
   };
 
-  const handleSubmit = async (e) => {
+  const manejarEnvio = async (e) => {
     e.preventDefault();
     
-    if (!employeeId.trim()) {
-      setMessage({ 
-        text: 'Por favor, ingresa tu número de empleado', 
-        type: 'error' 
+    if (!numeroEmpleado.trim()) {
+      setMensaje({ 
+        texto: 'Por favor, ingresa tu número de empleado', 
+        tipo: 'error' 
       });
       return;
     }
 
-    if (!employeeInfo) {
-      setMessage({ 
-        text: 'Por favor, verifica que el número de empleado sea correcto', 
-        type: 'error' 
+    if (!informacionEmpleado) {
+      setMensaje({ 
+        texto: 'Por favor, verifica que el número de empleado sea correcto', 
+        tipo: 'error' 
       });
       return;
     }
 
     // Verificar nuevamente si ya tiene asistencia reciente
-    const attendanceCheck = await checkRecentAttendance(employeeId);
-    if (attendanceCheck.hasRecentAttendance) {
-      setHasRecentAttendance(true);
-      setNextAllowedTime(attendanceCheck.nextAllowedTime);
-      setMessage({ 
-        text: `Ya registraste asistencia recientemente. Puedes registrar nuevamente en ${attendanceCheck.hoursRemaining} horas.`, 
-        type: 'warning' 
+    const verificacionAsistencia = await verificarAsistenciaReciente(numeroEmpleado);
+    if (verificacionAsistencia.tiene_asistencia_reciente) {
+      setTieneAsistenciaReciente(true);
+      setProximoRegistroPermitido(verificacionAsistencia.proximo_registro_permitido);
+      setMensaje({ 
+        texto: `Ya registraste asistencia recientemente. Puedes registrar nuevamente en ${verificacionAsistencia.horas_restantes} horas.`, 
+        tipo: 'warning' 
       });
       return;
     }
 
-    setLoading(true);
+    setCargando(true);
     try {
-      const response = await fetch('/api/register-attendance', {
+      const respuesta = await fetch('/api/asistencias', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ employeeId }),
+        body: JSON.stringify({ numero_empleado: numeroEmpleado }),
       });
 
-      const data = await response.json();
+      const datos = await respuesta.json();
 
-      if (response.ok) {
-        setMessage({ 
-          text: `¡Asistencia registrada exitosamente! Bienvenido/a ${data.employeeName}`, 
-          type: 'success' 
+      if (respuesta.ok) {
+        setMensaje({ 
+          texto: `¡Asistencia registrada exitosamente! Bienvenido/a ${datos.nombre_empleado}`, 
+          tipo: 'success' 
         });
         
         // Mostrar detalles del registro
         setTimeout(() => {
-          setMessage({ 
-            text: `Registrado: ${data.date} ${data.time} - ${data.department}`, 
-            type: 'success' 
+          setMensaje({ 
+            texto: `Registrado: ${datos.fecha} ${datos.hora} - ${datos.area}`, 
+            tipo: 'success' 
           });
         }, 2000);
         
-        setEmployeeId('');
-        setEmployeeInfo(null);
-        setHasRecentAttendance(false);
-        setNextAllowedTime(null);
+        setNumeroEmpleado('');
+        setInformacionEmpleado(null);
+        setTieneAsistenciaReciente(false);
+        setProximoRegistroPermitido(null);
         
         // Actualizar registros recientes
-        fetchRecentRegistrations();
+        obtenerRegistrosRecientes();
         
         // Auto-limpiar mensaje después de 8 segundos
         setTimeout(() => {
-          setMessage({ text: '', type: '' });
+          setMensaje({ texto: '', tipo: '' });
         }, 8000);
       } else {
-        setMessage({ 
-          text: data.error || 'Error al registrar asistencia', 
-          type: 'error' 
+        setMensaje({ 
+          texto: datos.error || 'Error al registrar asistencia', 
+          tipo: 'error' 
         });
         
         // Auto-limpiar mensaje de error después de 5 segundos
         setTimeout(() => {
-          setMessage({ text: '', type: '' });
+          setMensaje({ texto: '', tipo: '' });
         }, 5000);
       }
     } catch (error) {
-      setMessage({ 
-        text: 'Error de conexión con el servidor', 
-        type: 'error' 
+      setMensaje({ 
+        texto: 'Error de conexión con el servidor', 
+        tipo: 'error' 
       });
       
       setTimeout(() => {
-        setMessage({ text: '', type: '' });
+        setMensaje({ texto: '', tipo: '' });
       }, 5000);
     } finally {
-      setLoading(false);
+      setCargando(false);
     }
   };
 
-  const formatTime = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('es-ES', {
+  const formatearHora = (marcaTiempo) => {
+    const fecha = new Date(marcaTiempo);
+    return fecha.toLocaleTimeString('es-MX', {
       hour: '2-digit',
       minute: '2-digit'
     });
   };
 
-  const formatDateTime = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleString('es-ES', {
+  const formatearFechaHora = (cadenaFecha) => {
+    if (!cadenaFecha) return '';
+    const fecha = new Date(cadenaFecha);
+    return fecha.toLocaleString('es-MX', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -373,7 +372,7 @@ const checkRecentAttendance = async (employeeId) => {
               </div>
 
               {/* Formulario */}
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={manejarEnvio} className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Número de Empleado
@@ -381,20 +380,20 @@ const checkRecentAttendance = async (employeeId) => {
                   <div className="relative">
                     <input
                       type="text"
-                      value={employeeId}
-                      onChange={(e) => setEmployeeId(e.target.value)}
+                      value={numeroEmpleado}
+                      onChange={(e) => setNumeroEmpleado(e.target.value)}
                       className="input-field text-lg text-gray-800 pr-12"
                       placeholder=""
-                      disabled={loading}
+                      disabled={cargando}
                       autoFocus
                     />
                     <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      {validating ? (
+                      {validando ? (
                         <svg className="animate-spin h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                         </svg>
-                      ) : employeeInfo ? (
+                      ) : informacionEmpleado ? (
                         <CheckCircleIcon className="h-5 w-5 text-green-500" />
                       ) : (
                         <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,20 +404,20 @@ const checkRecentAttendance = async (employeeId) => {
                   </div>
                   
                   {/* Información del empleado */}
-                  {employeeInfo && (
+                  {informacionEmpleado && (
                     <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl">
                       <div className="flex items-center">
                         <UserCircleIcon className="h-10 w-10 text-blue-600 flex-shrink-0" />
                         <div className="ml-4">
-                          <p className="text-sm font-medium text-blue-900">{employeeInfo.name}</p>
-                          <p className="text-xs text-blue-700">{employeeInfo.department}</p>
+                          <p className="text-sm font-medium text-blue-900">{informacionEmpleado.nombre}</p>
+                          <p className="text-xs text-blue-700">{informacionEmpleado.area}</p>
                         </div>
                       </div>
                     </div>
                   )}
 
                   {/* Advertencia de asistencia reciente */}
-                  {hasRecentAttendance && nextAllowedTime && (
+                  {tieneAsistenciaReciente && proximoRegistroPermitido && (
                     <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-100 rounded-xl">
                       <div className="flex items-start">
                         <InformationCircleIcon className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -427,7 +426,7 @@ const checkRecentAttendance = async (employeeId) => {
                             Ya registraste asistencia recientemente
                           </p>
                           <p className="text-xs text-amber-700 mt-1">
-                            Puedes registrar nuevamente después de: {formatDateTime(nextAllowedTime)}
+                            Puedes registrar nuevamente después de: {formatearFechaHora(proximoRegistroPermitido)}
                           </p>
                         </div>
                       </div>
@@ -437,52 +436,52 @@ const checkRecentAttendance = async (employeeId) => {
 
                 <button
                   type="submit"
-                  disabled={loading || !employeeInfo || hasRecentAttendance}
+                  disabled={cargando || !informacionEmpleado || tieneAsistenciaReciente}
                   className="btn-primary w-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loading ? (
+                  {cargando ? (
                     <>
                       <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Registrando en Google Sheets...
+                      Registrando en base de datos...
                     </>
-                  ) : hasRecentAttendance ? 'Ya registrado (Espere 20h)' : 'Registrar Entrada'}
+                  ) : tieneAsistenciaReciente ? 'Ya registrado (Espere 20h)' : 'Registrar Entrada'}
                 </button>
               </form>
 
               {/* Mensaje de estado */}
-              {message.text && (
+              {mensaje.texto && (
                 <div className={`mt-6 p-4 rounded-xl border ${
-                  message.type === 'success' 
+                  mensaje.tipo === 'success' 
                     ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 text-green-700' 
-                    : message.type === 'error'
+                    : mensaje.tipo === 'error'
                     ? 'bg-gradient-to-r from-red-50 to-rose-50 border-red-200 text-red-700'
-                    : message.type === 'warning'
+                    : mensaje.tipo === 'warning'
                     ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200 text-amber-700'
                     : 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200 text-blue-700'
                 }`}>
                   <div className="flex items-start">
-                    {message.type === 'success' ? (
+                    {mensaje.tipo === 'success' ? (
                       <CheckCircleIcon className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
-                    ) : message.type === 'error' ? (
+                    ) : mensaje.tipo === 'error' ? (
                       <XCircleIcon className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
-                    ) : message.type === 'warning' ? (
+                    ) : mensaje.tipo === 'warning' ? (
                       <InformationCircleIcon className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5 text-amber-600" />
                     ) : (
                       <InformationCircleIcon className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5 text-blue-600" />
                     )}
                     <div>
-                      <span className="font-medium">{message.text}</span>
-                      {message.type === 'success' && (
+                      <span className="font-medium">{mensaje.texto}</span>
+                      {mensaje.tipo === 'success' && (
                         <p className="text-sm mt-1 text-green-600">
-                          La información se ha guardado en Google Sheets
+                          La información se ha guardado en la base de datos
                         </p>
                       )}
-                      {message.type === 'warning' && nextAllowedTime && (
+                      {mensaje.tipo === 'warning' && proximoRegistroPermitido && (
                         <p className="text-sm mt-1 text-amber-600">
-                          Próximo registro permitido: {formatDateTime(nextAllowedTime)}
+                          Próximo registro permitido: {formatearFechaHora(proximoRegistroPermitido)}
                         </p>
                       )}
                     </div>
@@ -490,13 +489,11 @@ const checkRecentAttendance = async (employeeId) => {
                 </div>
               )}
 
-              {/* Nota sobre Google Sheets */}
+              {/* Nota sobre la base de datos */}
               <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
                 <div className="flex items-center text-sm text-gray-600">
-                  <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  <span>Tus asistencias se guardan automáticamente en Google Sheets</span>
+                  <CircleStackIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+                  <span>Tus asistencias se guardan automáticamente en la base de datos</span>
                 </div>
               </div>
             </div>
@@ -558,16 +555,16 @@ const checkRecentAttendance = async (employeeId) => {
                   </h3>
                 </div>
                 <button
-                  onClick={fetchRecentRegistrations}
+                  onClick={obtenerRegistrosRecientes}
                   className="text-sm text-blue-600 hover:text-blue-800"
                 >
                   Actualizar
                 </button>
               </div>
               
-              {recentRegistrations.length > 0 ? (
+              {registrosRecientes.length > 0 ? (
                 <div className="space-y-3">
-                  {recentRegistrations.slice(0, 5).map((record, index) => (
+                  {registrosRecientes.slice(0, 5).map((registro, index) => (
                     <div 
                       key={index} 
                       className="p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors duration-150"
@@ -575,18 +572,18 @@ const checkRecentAttendance = async (employeeId) => {
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-sm font-medium text-gray-900">
-                            {record.employeeName}
+                            {registro.nombre_empleado}
                           </p>
                           <p className="text-xs text-gray-500">
-                            ID: {record.employeeId}
+                            ID: {registro.numero_empleado}
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-medium text-gray-900">
-                            {formatTime(record.timestamp)}
+                            {formatearHora(registro.marca_tiempo)}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {record.date}
+                            {registro.fecha}
                           </p>
                         </div>
                       </div>
@@ -606,7 +603,7 @@ const checkRecentAttendance = async (employeeId) => {
             <div className="glass-card rounded-2xl p-6">
               <div className="text-center">
                 <button 
-                  onClick={handleAdminClick}
+                  onClick={manejarClickAdmin}
                   className="inline-flex items-center justify-center w-full px-4 py-3 bg-gradient-to-r from-gray-800 to-gray-900 text-white rounded-xl hover:from-gray-900 hover:to-black transition-all duration-200 font-medium group"
                 >
                   <svg className="w-5 h-5 mr-2 transition-transform group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -627,17 +624,15 @@ const checkRecentAttendance = async (employeeId) => {
         <div className="mt-8 text-center">
           <div className="inline-flex items-center justify-center px-4 py-2 bg-white rounded-xl shadow-sm">
             <p className="text-sm text-gray-600 flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-              Sistema conectado a Google Sheets • Límite: 20h entre registros • v2.1
+              <CircleStackIcon className="w-4 h-4" />
+              Sistema conectado a MongoDB • Límite: 20h entre registros • v3.0
             </p>
           </div>
         </div>
       </div>
 
       {/* Modal de autenticación */}
-      {showAuthModal && (
+      {mostrarModalAuth && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-6">
@@ -650,41 +645,41 @@ const checkRecentAttendance = async (employeeId) => {
                 </h3>
               </div>
               <button
-                onClick={() => setShowAuthModal(false)}
+                onClick={() => setMostrarModalAuth(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <XMarkIcon className="w-6 h-6" />
               </button>
             </div>
 
-            <form onSubmit={handlePasswordSubmit} className="space-y-6">
+            <form onSubmit={manejarEnvioContrasena} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Contraseña de 4 dígitos
                 </label>
                 <div className="relative">
                   <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
+                    type={mostrarContrasena ? "text" : "password"}
+                    value={contrasena}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 4);
-                      setPassword(value);
-                      setAuthError('');
+                      const valor = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      setContrasena(valor);
+                      setErrorAuth('');
                     }}
-                    onKeyDown={handleKeyPress}
+                    onKeyDown={manejarTeclaPresionada}
                     className="w-full px-4 py-3 text-gray-700 text-center text-2xl font-mono tracking-widest border border-gray-300 rounded-xl focus:ring-2 focus:ring-gray-800 focus:border-transparent transition-all"
                     placeholder="●●●●"
                     autoFocus
-                    disabled={isAuthenticating}
+                    disabled={autenticando}
                     maxLength={4}
                   />
                   <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center space-x-2">
                     <button
                       type="button"
-                      onClick={togglePasswordVisibility}
+                      onClick={alternarVisibilidadContrasena}
                       className="text-gray-400 hover:text-gray-600 transition-colors"
                     >
-                      {showPassword ? (
+                      {mostrarContrasena ? (
                         <EyeSlashIcon className="w-5 h-5" />
                       ) : (
                         <EyeIcon className="w-5 h-5" />
@@ -699,7 +694,7 @@ const checkRecentAttendance = async (employeeId) => {
                     <div
                       key={index}
                       className={`w-3 h-3 rounded-full transition-colors ${
-                        index < password.length
+                        index < contrasena.length
                           ? 'bg-gray-800'
                           : 'bg-gray-300'
                       }`}
@@ -708,12 +703,12 @@ const checkRecentAttendance = async (employeeId) => {
                 </div>
               </div>
 
-              {authError && (
+              {errorAuth && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                   <div className="flex items-center">
                     <XCircleIcon className="w-5 h-5 text-red-600 mr-2" />
                     <span className="text-sm font-medium text-red-700">
-                      {authError}
+                      {errorAuth}
                     </span>
                   </div>
                 </div>
@@ -721,10 +716,10 @@ const checkRecentAttendance = async (employeeId) => {
 
               <button
                 type="submit"
-                disabled={isAuthenticating || password.length !== 4}
+                disabled={autenticando || contrasena.length !== 4}
                 className="w-full px-4 py-3 bg-gradient-to-r from-gray-800 to-gray-900 text-white rounded-xl hover:from-gray-900 hover:to-black transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
-                {isAuthenticating ? (
+                {autenticando ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -738,7 +733,7 @@ const checkRecentAttendance = async (employeeId) => {
               <div className="text-center">
                 <button
                   type="button"
-                  onClick={() => setShowAuthModal(false)}
+                  onClick={() => setMostrarModalAuth(false)}
                   className="text-sm text-gray-600 hover:text-gray-800 transition-colors"
                 >
                   Cancelar
