@@ -51,7 +51,8 @@ export async function POST(solicitud) {
     const datos = await solicitud.json();
     console.log('📥 Datos recibidos para nuevo empleado:', datos);
     
-    const { nombre_completo, area, activo = true } = datos;
+    // Aceptar numero_empleado si viene del frontend
+    const { numero_empleado, nombre_completo, area, activo = true } = datos;
 
     // Validar datos
     if (!nombre_completo || !area) {
@@ -65,41 +66,70 @@ export async function POST(solicitud) {
       );
     }
 
-    // LÓGICA: Buscar el primer hueco disponible empezando desde 1
-    const empleados = await Empleado.find({
-      numero_empleado: { $regex: /^\d+$/ } // Solo números
-    }).sort({ numero_empleado: 1 });
+    let siguienteNumero;
     
-    let siguienteNumero = '1'; // Empezar desde 1
-    
-    // Si ya hay empleados, buscar huecos empezando desde 1
-    if (empleados.length > 0) {
-      // Convertir números a enteros y ordenar
-      const numeros = empleados.map(emp => parseInt(emp.numero_empleado));
-      numeros.sort((a, b) => a - b);
+    // Si el frontend envió un número, usarlo (después de validar)
+    if (numero_empleado && numero_empleado.trim() !== '') {
+      const numeroIngresado = numero_empleado.trim();
       
-      console.log('📊 Números existentes:', numeros);
+      // Validar que sea un número válido
+      if (!/^\d+$/.test(numeroIngresado)) {
+        return NextResponse.json(
+          { error: 'El número de empleado debe contener solo dígitos' },
+          { status: 400 }
+        );
+      }
       
-      // Buscar el primer hueco empezando desde 1
-      let huecoEncontrado = false;
-      for (let i = 1; i <= numeros.length + 1; i++) {
-        if (!numeros.includes(i)) {
-          siguienteNumero = i.toString();
-          huecoEncontrado = true;
-          console.log('🎯 Hueco encontrado en:', i);
-          break;
+      // Verificar que no exista ya
+      const existe = await Empleado.findOne({ numero_empleado: numeroIngresado });
+      if (existe) {
+        return NextResponse.json(
+          { error: `El número ${numeroIngresado} ya está registrado` },
+          { status: 409 }
+        );
+      }
+      
+      siguienteNumero = numeroIngresado;
+      console.log('🔢 Usando número ingresado manualmente:', siguienteNumero);
+    } else {
+      // Si no envió número, generar automáticamente
+      // LÓGICA: Buscar el primer hueco disponible empezando desde 1
+      const empleados = await Empleado.find({
+        numero_empleado: { $regex: /^\d+$/ } // Solo números
+      }).sort({ numero_empleado: 1 });
+      
+      siguienteNumero = '1'; // Empezar desde 1
+      
+      // Si ya hay empleados, buscar huecos empezando desde 1
+      if (empleados.length > 0) {
+        // Convertir números a enteros y ordenar
+        const numeros = empleados.map(emp => parseInt(emp.numero_empleado));
+        numeros.sort((a, b) => a - b);
+        
+        console.log('📊 Números existentes:', numeros);
+        
+        // Buscar el primer hueco empezando desde 1
+        let huecoEncontrado = false;
+        for (let i = 1; i <= numeros.length + 1; i++) {
+          if (!numeros.includes(i)) {
+            siguienteNumero = i.toString();
+            huecoEncontrado = true;
+            console.log('🎯 Hueco encontrado en:', i);
+            break;
+          }
+        }
+        
+        // Si no hay huecos, usar el siguiente consecutivo
+        if (!huecoEncontrado) {
+          const maxNumero = Math.max(...numeros);
+          siguienteNumero = (maxNumero + 1).toString();
+          console.log('📈 Usando siguiente consecutivo:', siguienteNumero);
         }
       }
       
-      // Si no hay huecos, usar el siguiente consecutivo
-      if (!huecoEncontrado) {
-        const maxNumero = Math.max(...numeros);
-        siguienteNumero = (maxNumero + 1).toString();
-        console.log('📈 Usando siguiente consecutivo:', siguienteNumero);
-      }
+      console.log('🔢 Número generado automáticamente:', siguienteNumero);
     }
     
-    console.log('🔢 Número generado automáticamente:', siguienteNumero);
     console.log('📝 Datos a guardar:', {
       numero_empleado: siguienteNumero,
       nombre_completo: nombre_completo.trim(),

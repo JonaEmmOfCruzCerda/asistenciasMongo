@@ -126,6 +126,29 @@ EsquemaAsistencia.statics.obtenerEstadisticasDia = async function(fecha) {
   }
 };
 
+// Agrega un middleware antes de guardar
+EsquemaAsistencia.pre('save', function(next) {
+  // Solo aplicar si es un nuevo documento
+  if (this.isNew) {
+    const ahora = new Date();
+    
+    // Formatear fecha y hora en formato mexicano
+    this.fecha = ahora.toLocaleDateString('es-MX', {
+      timeZone: 'America/Mexico_City'
+    });
+    
+    this.hora = ahora.toLocaleTimeString('es-MX', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'America/Mexico_City'
+    });
+    
+    this.marca_tiempo = ahora;
+  }
+  next();
+});
+
 // Verificar si el modelo ya existe
 const Asistencia = mongoose.models.Asistencia || mongoose.model('Asistencia', EsquemaAsistencia);
 

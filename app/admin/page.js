@@ -1157,7 +1157,7 @@ const getCurrentJaliscoTime = () => {
                   <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Número de Empleado {employeeForm.isEditing ? '*' : ''}
+                      Número de Empleado *
                     </label>
                     <div className="relative">
                       <input
@@ -1168,8 +1168,11 @@ const getCurrentJaliscoTime = () => {
                         className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                           formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
                         }`}
-                        placeholder={employeeForm.isEditing ? "Número actual: " + employeeForm.originalId : "Generado automáticamente (1, 2, 3...)"}
-                        disabled={!employeeForm.isEditing} // Habilitado también para edición
+                        placeholder={employeeForm.isEditing ? 
+                          "Número actual: " + employeeForm.originalId : 
+                          "Ingresa el número (ej: 1, 2, 3...)"}
+                        // QUITAR el disabled o cambiarlo a false:
+                        disabled={false}
                       />
                       {!employeeForm.isEditing && (
                         <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -1182,15 +1185,11 @@ const getCurrentJaliscoTime = () => {
                     {formErrors.numero_empleado && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
                     )}
-                    {employeeForm.isEditing ? (
-                      <p className="mt-1 text-xs text-gray-500">
-                        Puedes cambiar el número si es necesario
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-gray-500">
-                        El número se generará automáticamente (1, 2, 3...)
-                      </p>
-                    )}
+                    <p className="mt-1 text-xs text-gray-500">
+                      {employeeForm.isEditing ? 
+                        "Puedes cambiar el número si es necesario" : 
+                        "Ingresa manualmente el número del empleado"}
+                    </p>
                   </div>
 
                     <div>
