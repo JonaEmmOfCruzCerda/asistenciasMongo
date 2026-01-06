@@ -56,6 +56,8 @@ export async function GET(solicitud) {
 /**
  * POST → Registrar nueva asistencia
  */
+// En /app/api/asistencias/route.js - Modificar el POST:
+
 export async function POST(solicitud) {
   try {
     await conectarDB();
@@ -102,10 +104,23 @@ export async function POST(solicitud) {
       );
     }
 
-    // Crear registro de asistencia
+    // Crear registro de asistencia con hora de Jalisco
     const ahora = new Date();
-    const fechaStr = ahora.toLocaleDateString('es-MX');
-    const horaStr = ahora.toLocaleTimeString('es-MX');
+    
+    // Ajustar a zona horaria de Jalisco (UTC-6 o UTC-5 dependiendo de horario de verano)
+    const offsetJalisco = -6 * 60; // UTC-6 en minutos (puedes ajustar según horario de verano)
+    const ahoraJalisco = new Date(ahora.getTime() + offsetJalisco * 60000);
+    
+    const fechaStr = ahoraJalisco.toLocaleDateString('es-MX', {
+      timeZone: 'America/Mexico_City' // Zona horaria de Jalisco
+    });
+    
+    const horaStr = ahoraJalisco.toLocaleTimeString('es-MX', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'America/Mexico_City'
+    });
 
     const nuevaAsistencia = await Asistencia.create({
       numero_empleado: empleado.numero_empleado,
@@ -113,7 +128,7 @@ export async function POST(solicitud) {
       area_empleado: empleado.area,
       fecha: fechaStr,
       hora: horaStr,
-      marca_tiempo: ahora,
+      marca_tiempo: ahora, // Guardar en UTC
       tipo_registro: 'entrada'
     });
 

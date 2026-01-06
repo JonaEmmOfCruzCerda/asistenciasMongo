@@ -152,11 +152,17 @@ export async function POST(solicitud) {
 /**
  * PUT → Actualizar empleado
  */
+// En /app/api/empleados/route.js - Modificar el PUT:
+
+// En /app/api/empleados/route.js - Modificar el PUT:
+
 export async function PUT(solicitud) {
   try {
     await conectarDB();
     
     const datos = await solicitud.json();
+    console.log('📥 Datos recibidos para actualizar empleado:', datos);
+    
     const { id, nombre_completo, area, activo, id_original } = datos;
 
     if (!id || !nombre_completo || !area) {
@@ -166,40 +172,98 @@ export async function PUT(solicitud) {
       );
     }
 
-    // Buscar por el ID original o el nuevo
+    // Buscar por el ID original
     const idBusqueda = id_original || id;
     
+    console.log(`🔍 Buscando empleado con número original: ${idBusqueda}`);
+    console.log(`🎯 Nuevo número solicitado: ${id}`);
+    
+    // Verificar si el nuevo número ya existe (si es diferente al original)
+    if (id !== id_original) {
+      const numeroExistente = await Empleado.findOne({ numero_empleado: id });
+      if (numeroExistente) {
+        return NextResponse.json(
+          { error: `El número ${id} ya está registrado por otro empleado` },
+          { status: 409 }
+        );
+      }
+    }
+
     const datosActualizar = {
+      numero_empleado: id, // Actualizar el número si cambió
       nombre_completo: nombre_completo.trim(),
       area: area.trim(),
       activo: activo === 'Sí' || activo === true || activo === 'true',
       fecha_actualizacion: new Date()
     };
 
-    const empleadoActualizado = await Empleado.findOneAndUpdate(
-      { numero_empleado: idBusqueda },
-      datosActualizar,
-      { 
-        new: true,
-        runValidators: true
-      }
-    );
+    console.log('📝 Datos a actualizar:', datosActualizar);
 
-    if (!empleadoActualizado) {
+    // Primero verificar si existe el empleado original
+    const empleadoExistente = await Empleado.findOne({ numero_empleado: idBusqueda });
+    
+    if (!empleadoExistente) {
+      console.error('❌ Empleado no encontrado con número:', idBusqueda);
       return NextResponse.json(
         { error: 'Empleado no encontrado' },
         { status: 404 }
       );
     }
 
+    // Si cambió el número, primero eliminar el viejo y crear nuevo
+    let empleadoActualizado;
+    
+    if (id !== id_original) {
+      console.log('🔄 Cambiando número de empleado...');
+      
+      // Eliminar el registro viejo
+      await Empleado.deleteOne({ numero_empleado: idBusqueda });
+      
+      // Crear nuevo registro con el nuevo número
+      empleadoActualizado = await Empleado.create({
+        numero_empleado: id,
+        nombre_completo: nombre_completo.trim(),
+        area: area.trim(),
+        activo: activo === 'Sí' || activo === true || activo === 'true',
+        fecha_creacion: empleadoExistente.fecha_creacion, // Mantener fecha original
+        fecha_actualizacion: new Date()
+      });
+      
+      console.log('✅ Empleado recreado con nuevo número');
+    } else {
+      // Si no cambió el número, solo actualizar
+      empleadoActualizado = await Empleado.findOneAndUpdate(
+        { numero_empleado: idBusqueda },
+        datosActualizar,
+        { 
+          new: true,
+          runValidators: true
+        }
+      );
+    }
+
+    if (!empleadoActualizado) {
+      console.error('❌ Error al actualizar empleado');
+      return NextResponse.json(
+        { error: 'Error al actualizar empleado' },
+        { status: 500 }
+      );
+    }
+
+    console.log('✅ Empleado actualizado exitosamente:', empleadoActualizado);
+
     return NextResponse.json({
       exito: true,
       mensaje: 'Empleado actualizado exitosamente',
-      empleado: empleadoActualizado
+      empleado: empleadoActualizado,
+      numero_original: id_original,
+      numero_nuevo: id,
+      cambio_numero: id !== id_original
     });
     
   } catch (error) {
     console.error('❌ Error en PUT /api/empleados:', error);
+    console.error('📋 Detalles del error:', error.message);
     return NextResponse.json(
       { error: 'Error al actualizar empleado: ' + error.message },
       { status: 500 }

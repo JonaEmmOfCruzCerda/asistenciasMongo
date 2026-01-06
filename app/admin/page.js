@@ -61,16 +61,37 @@ export default function AdminPage() {
   // Estado para la nueva tabla de verificación de asistencia
   const [attendanceCheckData, setAttendanceCheckData] = useState([]);
   const [attendanceCheckLoading, setAttendanceCheckLoading] = useState(false);
-  const [currentDate] = useState(new Date().toLocaleDateString('es-MX'));
+  const [currentDate] = useState(() => {
+  return new Date().toLocaleDateString('es-MX', {
+    timeZone: 'America/Mexico_City'
+  });
+});
 
   // Función para formatear fecha
-  const formatDateTime = (date) => {
-    return new Date(date).toLocaleString('es-MX', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-  };
+  // Función para formatear fecha con zona horaria de Jalisco
+const formatDateTime = (date) => {
+  return new Date(date).toLocaleString('es-MX', {
+    timeZone: 'America/Mexico_City',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
+
+// Función para obtener hora actual de Jalisco
+const getCurrentJaliscoTime = () => {
+  return new Date().toLocaleTimeString('es-MX', {
+    timeZone: 'America/Mexico_City',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+// En el componente, cambia la hora actual:
+<div className="text-sm text-gray-500 flex items-center">
+  <ClockIcon className="w-4 h-4 mr-1" />
+  Hora actual (Jalisco): {getCurrentJaliscoTime()}
+</div>
 
   // Función para verificar si un empleado registró antes de las 9:00 AM
   const checkAttendanceBefore9AM = (attendanceRecords) => {
@@ -508,97 +529,108 @@ export default function AdminPage() {
   };
 
   const validateEmployeeForm = () => {
-    const errors = {};
-    
-    // Validar ID solo si estamos editando
-    if (employeeForm.isEditing) {
-      if (!employeeForm.numero_empleado.trim()) {
-        errors.numero_empleado = 'El número de empleado es requerido';
-      } else if (!/^\d+$/.test(employeeForm.numero_empleado.trim())) {
-        errors.numero_empleado = 'Debe ser un número válido';
-      }
-    }
-    
-    if (!employeeForm.nombre_completo.trim()) errors.nombre_completo = 'El nombre es requerido';
-    if (!employeeForm.area.trim()) errors.area = 'El área/departamento es requerido';
-    
-    // Verificar si el ID ya existe (solo cuando se está editando y cambió el ID)
-    if (employeeForm.isEditing && employeeForm.originalId !== employeeForm.numero_empleado) {
-      if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado && 
-                              emp.numero_empleado !== employeeForm.originalId)) {
+  const errors = {};
+  
+  // Validar ID siempre (tanto para edición como para nuevo)
+  if (!employeeForm.numero_empleado.trim()) {
+    errors.numero_empleado = 'El número de empleado es requerido';
+  } else if (!/^\d+$/.test(employeeForm.numero_empleado.trim())) {
+    errors.numero_empleado = 'Debe ser un número válido (ej: 1, 2, 3...)';
+  } else if (parseInt(employeeForm.numero_empleado) < 1) {
+    errors.numero_empleado = 'El número debe ser mayor a 0';
+  }
+  
+  if (!employeeForm.nombre_completo.trim()) errors.nombre_completo = 'El nombre es requerido';
+  if (!employeeForm.area.trim()) errors.area = 'El área/departamento es requerido';
+  
+  // Verificar si el ID ya existe
+  if (employeeForm.isEditing) {
+    // Si está editando y cambió el número, verificar que el nuevo no exista
+    if (employeeForm.originalId !== employeeForm.numero_empleado) {
+      if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado)) {
         errors.numero_empleado = 'Este número ya está registrado por otro empleado';
       }
     }
-    
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
+  } else {
+    // Si es nuevo empleado, verificar que el número no exista
+    if (employees.some(emp => emp.numero_empleado === employeeForm.numero_empleado)) {
+      errors.numero_empleado = 'Este número ya está registrado';
+    }
+  }
+  
+  setFormErrors(errors);
+  return Object.keys(errors).length === 0;
+};
 
   const handleAddEmployee = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
+  
+  if (!validateEmployeeForm()) return;
+  
+  try {
+    // Preparar datos para enviar
+    const employeeData = {
+      numero_empleado: employeeForm.numero_empleado.trim(),
+      nombre_completo: employeeForm.nombre_completo.trim(),
+      area: employeeForm.area.trim(),
+      activo: employeeForm.activo === 'Sí'
+    };
     
-    if (!validateEmployeeForm()) return;
+    console.log('📤 Enviando datos del empleado:', employeeData);
     
-    try {
-      // Preparar datos para enviar
-      const employeeData = {
-        nombre_completo: employeeForm.nombre_completo.trim(),
-        area: employeeForm.area.trim(),
-        activo: employeeForm.activo === 'Sí',
-        // Para nuevos empleados, el backend generará el ID automáticamente
-        numero_empleado: employeeForm.isEditing ? employeeForm.numero_empleado.trim() : undefined
-      };
+    // Diferencia entre POST (crear) y PUT (editar)
+    let endpoint = '/api/empleados';
+    let method = 'POST';
+    
+    if (employeeForm.isEditing) {
+      method = 'PUT';
+      // Para editar, necesitamos enviar el ID original para buscar
+      employeeData.id = employeeForm.numero_empleado.trim();
+      employeeData.id_original = employeeForm.originalId;
+    }
+    
+    const response = await fetch(endpoint, {
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(employeeData),
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      // Mostrar mensaje con el ID generado si aplica
+      let message = employeeForm.isEditing 
+        ? 'Empleado actualizado exitosamente' 
+        : 'Empleado agregado exitosamente';
       
-      // Si estamos editando, agregar el ID original para la búsqueda
-      if (employeeForm.isEditing) {
-        employeeData.id = employeeForm.numero_empleado.trim();
-        employeeData.id_original = employeeForm.originalId;
-      }
-      
-      console.log('📤 Enviando datos del empleado:', employeeData);
-      
-      // Usar PUT para actualizaciones, POST para nuevos
-      const method = employeeForm.isEditing ? 'PUT' : 'POST';
-      const endpoint = '/api/empleados';
-      
-      const response = await fetch(endpoint, {
-        method: method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(employeeData),
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        
-        // Mostrar mensaje con el ID generado si aplica
-        let message = employeeForm.isEditing 
-          ? 'Empleado actualizado exitosamente' 
-          : 'Empleado agregado exitosamente';
-        
-        if (!employeeForm.isEditing && result.numero_generado) {
-          message = `Empleado agregado exitosamente con número: ${result.numero_generado}`;
-        } else if (employeeForm.isEditing) {
+      if (!employeeForm.isEditing && result.numero_generado) {
+        message = `Empleado agregado exitosamente con número: ${result.numero_generado}`;
+      } else if (employeeForm.isEditing) {
+        const changedNumber = employeeForm.numero_empleado !== employeeForm.originalId;
+        if (changedNumber) {
+          message = `Empleado actualizado exitosamente. Número cambiado de ${employeeForm.originalId} a ${employeeForm.numero_empleado}`;
+        } else {
           message = `Empleado actualizado exitosamente (Número: ${employeeForm.numero_empleado})`;
         }
-        
-        alert(message);
-        console.log('✅ Respuesta del servidor:', result);
-        
-        resetEmployeeForm();
-        fetchEmployees(); // Recargar lista
-        fetchDataFromDB(); // Actualizar estadísticas
-      } else {
-        const error = await response.json();
-        console.error('❌ Error del servidor:', error);
-        alert(error.error || 'Error al guardar empleado');
       }
-    } catch (error) {
-      console.error('❌ Error de conexión:', error);
-      alert('Error de conexión con el servidor');
+      
+      alert(message);
+      console.log('✅ Respuesta del servidor:', result);
+      
+      resetEmployeeForm();
+      fetchEmployees(); // Recargar lista
+      fetchDataFromDB(); // Actualizar estadísticas
+    } else {
+      console.error('❌ Error del servidor:', result);
+      alert(result.error || 'Error al guardar empleado');
     }
-  };
+  } catch (error) {
+    console.error('❌ Error de conexión:', error);
+    alert('Error de conexión con el servidor');
+  }
+};
 
   const handleEditEmployee = (employee) => {
     setEditingEmployee(employee);
@@ -1123,44 +1155,43 @@ export default function AdminPage() {
                   </div>
 
                   <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Número de Empleado {employeeForm.isEditing ? '*' : ''}
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          name="numero_empleado"
-                          value={employeeForm.numero_empleado}
-                          onChange={handleEmployeeFormChange}
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
-                          } ${employeeForm.isEditing ? 'bg-gray-100 text-gray-600' : 'bg-white'}`}
-                          placeholder={employeeForm.isEditing ? employeeForm.numero_empleado : "Generado automáticamente (0, 1, 2...)"}
-                          disabled={!employeeForm.isEditing}
-                          readOnly={!employeeForm.isEditing}
-                        />
-                        {!employeeForm.isEditing && (
-                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                          </div>
-                        )}
-                      </div>
-                      {formErrors.numero_empleado && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
-                      )}
-                      {employeeForm.isEditing ? (
-                        <p className="mt-1 text-xs text-gray-500">
-                          El número de empleado no se puede modificar
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-xs text-gray-500">
-                          El número se generará automáticamente (0, 1, 2, 3...)
-                        </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Número de Empleado {employeeForm.isEditing ? '*' : ''}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        name="numero_empleado"
+                        value={employeeForm.numero_empleado}
+                        onChange={handleEmployeeFormChange}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                          formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                        placeholder={employeeForm.isEditing ? "Número actual: " + employeeForm.originalId : "Generado automáticamente (1, 2, 3...)"}
+                        disabled={!employeeForm.isEditing} // Habilitado también para edición
+                      />
+                      {!employeeForm.isEditing && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        </div>
                       )}
                     </div>
+                    {formErrors.numero_empleado && (
+                      <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
+                    )}
+                    {employeeForm.isEditing ? (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Puedes cambiar el número si es necesario
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-gray-500">
+                        El número se generará automáticamente (1, 2, 3...)
+                      </p>
+                    )}
+                  </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
