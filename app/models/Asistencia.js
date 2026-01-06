@@ -1,155 +1,83 @@
+// app/models/Asistencia.js
 import mongoose from 'mongoose';
 
-// Esquema de Asistencia
-const EsquemaAsistencia = new mongoose.Schema({
+const asistenciaSchema = new mongoose.Schema({
   numero_empleado: {
     type: String,
     required: [true, 'El número de empleado es requerido'],
-    index: true,
-    ref: 'Empleado'
+    trim: true
   },
-  
   nombre_empleado: {
     type: String,
-    required: [true, 'El nombre del empleado es requerido']
+    required: [true, 'El nombre del empleado es requerido'],
+    trim: true
   },
-  
   area_empleado: {
     type: String,
-    required: [true, 'El área del empleado es requerida']
+    required: [true, 'El área del empleado es requerido'],
+    trim: true
   },
-  
-  tipo_registro: {
-    type: String,
-    enum: ['entrada', 'salida'],
-    default: 'entrada'
-  },
-  
   fecha: {
-    type: String, // Formato: "DD/MM/YYYY"
-    required: [true, 'La fecha es requerida'],
-    index: true
+    type: String,
+    required: true
   },
-  
   hora: {
-    type: String, // Formato: "HH:MM:SS"
-    required: [true, 'La hora es requerida']
+    type: String,
+    required: true
   },
-  
   marca_tiempo: {
     type: Date,
     required: true,
     default: Date.now,
     index: true
   },
-  
-  notas: {
+  tipo_registro: {
     type: String,
-    default: ''
-  },
-  
-  fecha_creacion: {
-    type: Date,
-    default: Date.now
+    enum: ['entrada', 'salida'],
+    default: 'entrada'
   }
 }, {
-  timestamps: { 
-    createdAt: 'fecha_creacion' 
-  }
+  timestamps: true
 });
 
-// Índices compuestos para búsquedas eficientes
-EsquemaAsistencia.index({ numero_empleado: 1, marca_tiempo: -1 });
-EsquemaAsistencia.index({ fecha: 1, tipo_registro: 1 });
-EsquemaAsistencia.index({ numero_empleado: 1, fecha: 1 });
-EsquemaAsistencia.index({ area_empleado: 1, fecha: 1 });
+// Índices
+asistenciaSchema.index({ numero_empleado: 1, marca_tiempo: -1 });
+asistenciaSchema.index({ fecha: 1, hora: 1 });
 
-/**
- * Método para verificar asistencia reciente
- */
-EsquemaAsistencia.statics.verificarAsistenciaReciente = async function(numeroEmpleado, horasLimite = 20) {
+// Método estático para verificar asistencia reciente (CORREGIDO)
+asistenciaSchema.statics.verificarAsistenciaReciente = async function(numeroEmpleado) {
   try {
-    const fechaLimite = new Date(Date.now() - (horasLimite * 60 * 60 * 1000));
+    console.log('🔍 Verificando asistencia reciente para:', numeroEmpleado);
     
-    const ultimaAsistencia = await this.findOne({
-      numero_empleado: numeroEmpleado,
-      marca_tiempo: { $gte: fechaLimite }
+    const ultimaAsistencia = await this.findOne({ 
+      numero_empleado: numeroEmpleado 
     }).sort({ marca_tiempo: -1 });
-
-    const tieneAsistenciaReciente = !!ultimaAsistencia;
-    const proximoRegistroPermitido = ultimaAsistencia 
-      ? new Date(ultimaAsistencia.marca_tiempo.getTime() + (horasLimite * 60 * 60 * 1000))
-      : null;
-
+    
+    console.log('📊 Última asistencia encontrada:', ultimaAsistencia);
+    
+    if (!ultimaAsistencia) {
+      return {
+        tieneAsistenciaReciente: false,
+        ultimaAsistencia: null,
+        proximoRegistroPermitido: null
+      };
+    }
+    
+    const ahora = new Date();
+    const horasTranscurridas = (ahora - ultimaAsistencia.marca_tiempo) / (1000 * 60 * 60);
+    const tieneAsistenciaReciente = horasTranscurridas < 20;
+    
     return {
       tieneAsistenciaReciente,
-      ultimaAsistencia: ultimaAsistencia || null,
-      proximoRegistroPermitido
-    };
-  } catch (error) {
-    console.error('Error verificando asistencia reciente:', error);
-    throw error;
-  }
-};
-
-/**
- * Método para obtener estadísticas diarias
- */
-EsquemaAsistencia.statics.obtenerEstadisticasDia = async function(fecha) {
-  try {
-    const registros = await this.find({ fecha });
-    
-    const empleadosRegistrados = [...new Set(registros.map(r => r.numero_empleado))];
-    const registrosPorArea = {};
-    
-    registros.forEach(registro => {
-      if (!registrosPorArea[registro.area_empleado]) {
-        registrosPorArea[registro.area_empleado] = 0;
-      }
-      registrosPorArea[registro.area_empleado]++;
-    });
-
-    return {
-      total_registros: registros.length,
-      empleados_unicos: empleadosRegistrados.length,
-      registros_por_area: registrosPorArea,
-      primer_registro: registros.length > 0 
-        ? registros.reduce((min, r) => r.marca_tiempo < min.marca_tiempo ? r : min)
-        : null,
-      ultimo_registro: registros.length > 0 
-        ? registros.reduce((max, r) => r.marca_tiempo > max.marca_tiempo ? r : max)
+      ultimaAsistencia,
+      proximoRegistroPermitido: tieneAsistenciaReciente 
+        ? new Date(ultimaAsistencia.marca_tiempo.getTime() + (20 * 60 * 60 * 1000))
         : null
     };
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
+    console.error('❌ Error en verificarAsistenciaReciente:', error);
     throw error;
   }
 };
 
-// Agrega un middleware antes de guardar
-EsquemaAsistencia.pre('save', function(next) {
-  // Solo aplicar si es un nuevo documento
-  if (this.isNew) {
-    const ahora = new Date();
-    
-    // Formatear fecha y hora en formato mexicano
-    this.fecha = ahora.toLocaleDateString('es-MX', {
-      timeZone: 'America/Mexico_City'
-    });
-    
-    this.hora = ahora.toLocaleTimeString('es-MX', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      timeZone: 'America/Mexico_City'
-    });
-    
-    this.marca_tiempo = ahora;
-  }
-  next();
-});
-
-// Verificar si el modelo ya existe
-const Asistencia = mongoose.models.Asistencia || mongoose.model('Asistencia', EsquemaAsistencia);
-
-export default Asistencia;
+export default mongoose.models.Asistencia || mongoose.model('Asistencia', asistenciaSchema);
