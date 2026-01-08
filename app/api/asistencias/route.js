@@ -58,7 +58,6 @@ export async function GET(solicitud) {
 
 /**
  * Función para convertir fecha UTC a formato Jalisco (DD/MM/YYYY HH:MM:SS)
- * FUNCIONA TANTO EN LOCAL COMO EN VERCEL
  */
 function formatDateToJalisco(date) {
   // Ajustar a hora de Jalisco (UTC-6)
@@ -80,7 +79,67 @@ function formatDateToJalisco(date) {
 }
 
 /**
- * POST → Registrar nueva asistencia (CORREGIDO PARA VERCEL)
+ * Función para verificar si es después de las 4:00 PM (hora Jalisco)
+ */
+function esDespuesDeLas4PM() {
+  const ahora = new Date();
+  const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+  const hora = fechaJalisco.getUTCHours();
+  const minutos = fechaJalisco.getUTCMinutes();
+  
+  // Después de las 4:00 PM (16:00)
+  return hora > 16 || (hora === 16 && minutos >= 0);
+}
+
+/**
+ * Función para obtener la fecha de hoy en formato Jalisco
+ */
+function getCurrentJaliscoDate() {
+  const ahora = new Date();
+  const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+  
+  const dia = fechaJalisco.getUTCDate().toString().padStart(2, '0');
+  const mes = (fechaJalisco.getUTCMonth() + 1).toString().padStart(2, '0');
+  const año = fechaJalisco.getUTCFullYear();
+  
+  return `${dia}/${mes}/${año}`;
+}
+
+/**
+ * Función para calcular cuánto falta para las 4:00 PM
+ */
+function calcularTiempoHasta4PM() {
+  const ahora = new Date();
+  const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+  
+  const horaActual = fechaJalisco.getUTCHours();
+  const minutosActual = fechaJalisco.getUTCMinutes();
+  
+  // Calcular minutos totales actuales
+  const minutosActualesTotales = horaActual * 60 + minutosActual;
+  
+  // Minutos totales de las 4:00 PM (16:00)
+  const minutos4PM = 16 * 60;
+  
+  // Calcular minutos restantes
+  const minutosRestantes = minutos4PM - minutosActualesTotales;
+  
+  if (minutosRestantes <= 0) {
+    return { horas: 0, minutos: 0, totalMinutos: 0 };
+  }
+  
+  const horasRestantes = Math.floor(minutosRestantes / 60);
+  const minutosRestantesFinal = minutosRestantes % 60;
+  
+  return {
+    horas: horasRestantes,
+    minutos: minutosRestantesFinal,
+    totalMinutos: minutosRestantes
+  };
+}
+
+/**
+ * POST → Registrar nueva asistencia (ADAPTADO PARA LIBERAR DESPUÉS DE 4 PM)
  */
 export async function POST(solicitud) {
   try {
@@ -133,77 +192,100 @@ export async function POST(solicitud) {
 
     console.log('✅ Empleado encontrado:', empleado.nombre_completo);
 
-    // Verificar si ya tiene asistencia hoy (menos de 20 horas)
-    try {
-      const ahora = new Date();
-      console.log('📅 Verificando asistencia reciente...');
+    const ahora = new Date();
+    const esDespuesDe4PMActual = esDespuesDeLas4PM();
+    const fechaHoy = getCurrentJaliscoDate();
+    
+    console.log('🕐 Información hora actual:', {
+      fechaHoy,
+      esDespuesDe4PM: esDespuesDe4PMActual,
+      horaJalisco: formatDateToJalisco(ahora).hora
+    });
+
+    // Buscar registros de hoy del empleado
+    const registrosHoy = await Asistencia.find({
+      numero_empleado: numero_empleado,
+      fecha: fechaHoy
+    }).sort({ marca_tiempo: -1 });
+
+    console.log('📊 Registros de hoy encontrados:', registrosHoy.length);
+
+    // LÓGICA PRINCIPAL: VERIFICAR SEGÚN HORA ACTUAL
+    
+    if (!esDespuesDe4PMActual) {
+      // ANTES DE LAS 4:00 PM
       
-      // Método 1: Usar el método estático si existe
-      if (typeof Asistencia.verificarAsistenciaReciente === 'function') {
-        const verificacion = await Asistencia.verificarAsistenciaReciente(numero_empleado);
+      // Verificar si ya tiene entrada registrada hoy
+      const tieneEntradaHoy = registrosHoy.some(r => r.tipo_registro === 'entrada');
+      
+      if (tieneEntradaHoy) {
+        console.log('⚠️ Empleado ya registró entrada hoy (antes de 4 PM)');
         
-        if (verificacion.tieneAsistenciaReciente) {
-          const horasTranscurridas = (ahora - verificacion.ultimaAsistencia.marca_tiempo) / (1000 * 60 * 60);
-          const horasRestantes = (20 - horasTranscurridas).toFixed(2);
-          
-          console.log('⚠️ Tiene asistencia reciente:', {
-            ultima: verificacion.ultimaAsistencia.marca_tiempo,
-            horasTranscurridas,
-            horasRestantes
-          });
-          
-          return NextResponse.json(
-            { 
-              error: `Ya registraste asistencia recientemente. Espera ${horasRestantes} horas más.`,
-              proximo_registro_permitido: verificacion.proximoRegistroPermitido,
-              horas_restantes: horasRestantes
-            },
-            { status: 400 }
-          );
-        }
-      } else {
-        // Método 2: Verificación manual
-        const ultimaAsistencia = await Asistencia.findOne({ 
-          numero_empleado: numero_empleado 
-        }).sort({ marca_tiempo: -1 });
+        // Calcular cuánto falta para las 4 PM
+        const tiempoHasta4PM = calcularTiempoHasta4PM();
         
-        if (ultimaAsistencia) {
-          const horasTranscurridas = (ahora - ultimaAsistencia.marca_tiempo) / (1000 * 60 * 60);
-          
-          if (horasTranscurridas < 20) {
-            const horasRestantes = (20 - horasTranscurridas).toFixed(2);
-            console.log('⚠️ Asistencia reciente encontrada:', {
-              ultima: ultimaAsistencia.marca_tiempo,
-              horasTranscurridas,
-              horasRestantes
-            });
-            
-            return NextResponse.json(
-              { 
-                error: `Ya registraste asistencia recientemente. Espera ${horasRestantes} horas más.`,
-                horas_restantes: horasRestantes
-              },
-              { status: 400 }
-            );
+        let mensajeError = 'Ya registraste entrada hoy. ';
+        
+        if (tiempoHasta4PM.totalMinutos > 0) {
+          if (tiempoHasta4PM.horas > 0) {
+            mensajeError += `Puedes registrar nuevamente después de las 4:00 PM (en ${tiempoHasta4PM.horas}h ${tiempoHasta4PM.minutos}m)`;
+          } else {
+            mensajeError += `Puedes registrar nuevamente después de las 4:00 PM (en ${tiempoHasta4PM.minutos} minutos)`;
           }
+        } else {
+          mensajeError += 'Puedes registrar nuevamente después de las 4:00 PM';
         }
+        
+        return NextResponse.json(
+          { 
+            error: mensajeError,
+            tiene_entrada_hoy: true,
+            es_antes_de_4pm: true,
+            tiempo_hasta_4pm: tiempoHasta4PM,
+            puede_registrar_despues_4pm: true
+          },
+          { status: 400 }
+        );
       }
-    } catch (verificacionError) {
-      console.warn('⚠️ Error en verificación, continuando...:', verificacionError.message);
-      // Continuar con el registro si hay error en la verificación
+      
+      // Si no tiene entrada hoy, puede registrar
+      console.log('✅ No tiene entrada hoy, puede registrar (antes de 4 PM)');
+      
+    } else {
+      // DESPUÉS DE LAS 4:00 PM - SIEMPRE PUEDE REGISTRAR
+      console.log('✅ Es después de las 4:00 PM, puede registrar libremente');
+    }
+    
+    // Determinar tipo de registro
+    let tipoRegistro = 'entrada';
+    
+    if (registrosHoy.length > 0) {
+      // Si ya tiene registros hoy, alternar el tipo
+      const ultimoRegistro = registrosHoy[0];
+      
+      if (esDespuesDe4PMActual) {
+        // Después de 4 PM: alternar entre entrada/salida
+        tipoRegistro = ultimoRegistro.tipo_registro === 'entrada' ? 'salida' : 'entrada';
+      } else {
+        // Antes de 4 PM: será entrada (ya verificamos que no tenga entrada)
+        tipoRegistro = 'entrada';
+      }
+      
+      console.log('🔄 Último registro hoy:', {
+        tipo: ultimoRegistro.tipo_registro,
+        hora: ultimoRegistro.hora,
+        nuevo_tipo: tipoRegistro
+      });
     }
 
-    // Crear registro de asistencia CON FORMATO SEGURO PARA VERCEL
-    const ahora = new Date();
-    console.log('🕐 Fecha UTC actual:', ahora.toISOString());
-    
-    // Usar función segura para Vercel
+    // Crear registro de asistencia
     const { fecha, hora } = formatDateToJalisco(ahora);
     
-    console.log('📝 Datos a guardar (Jalisco):', {
+    console.log('📝 Datos a guardar:', {
       fecha,
       hora,
-      timestamp_utc: ahora
+      tipo_registro: tipoRegistro,
+      timestamp_utc: ahora.toISOString()
     });
 
     // Crear el registro de asistencia
@@ -214,14 +296,16 @@ export async function POST(solicitud) {
       fecha: fecha,
       hora: hora,
       marca_tiempo: ahora,
-      tipo_registro: 'entrada'
+      tipo_registro: tipoRegistro
     });
 
     console.log('✅ Asistencia registrada exitosamente:', {
       id: nuevaAsistencia._id,
       empleado: empleado.nombre_completo,
       fecha,
-      hora
+      hora,
+      tipo: tipoRegistro,
+      es_despues_de_4pm: esDespuesDe4PMActual
     });
 
     return NextResponse.json({
@@ -231,8 +315,11 @@ export async function POST(solicitud) {
       area: empleado.area,
       fecha: fecha,
       hora: hora,
+      tipo_registro: tipoRegistro,
       marca_tiempo: nuevaAsistencia.marca_tiempo,
-      id_registro: nuevaAsistencia._id
+      id_registro: nuevaAsistencia._id,
+      es_despues_de_4pm: esDespuesDe4PMActual,
+      registros_hoy: registrosHoy.length + 1
     });
 
   } catch (error) {
@@ -285,15 +372,15 @@ export async function POST(solicitud) {
   }
 }
 
+
 /**
- * PUT → Actualizar asistencia (si necesitas)
+ * PUT → Actualizar asistencia
  */
 export async function PUT(solicitud) {
   try {
     await conectarDB();
     const datos = await solicitud.json();
     
-    // Implementar lógica de actualización si es necesario
     return NextResponse.json({ mensaje: 'Método PUT no implementado' });
     
   } catch (error) {
@@ -306,7 +393,7 @@ export async function PUT(solicitud) {
 }
 
 /**
- * DELETE → Eliminar asistencia (si necesitas)
+ * DELETE → Eliminar asistencia
  */
 export async function DELETE(solicitud) {
   try {
@@ -321,7 +408,6 @@ export async function DELETE(solicitud) {
       );
     }
     
-    // Implementar lógica de eliminación si es necesario
     return NextResponse.json({ mensaje: 'Método DELETE no implementado' });
     
   } catch (error) {

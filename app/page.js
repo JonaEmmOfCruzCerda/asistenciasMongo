@@ -10,7 +10,8 @@ import {
   XMarkIcon,
   EyeIcon,
   EyeSlashIcon,
-  CircleStackIcon
+  CircleStackIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import AttendanceClock from '@/components/AttendanceClock';
 
@@ -29,11 +30,66 @@ export default function Home() {
   const [errorAuth, setErrorAuth] = useState('');
   const [autenticando, setAutenticando] = useState(false);
 
-  // Estado para verificar si ya registró asistencia
-  const [tieneAsistenciaReciente, setTieneAsistenciaReciente] = useState(false);
-  const [proximoRegistroPermitido, setProximoRegistroPermitido] = useState(null);
+  // Estados para verificación de asistencia
+  const [tieneAsistenciaHoy, setTieneAsistenciaHoy] = useState(false);
+  const [esDespuesDe4PM, setEsDespuesDe4PM] = useState(false);
+  const [horaActual, setHoraActual] = useState('');
+  const [puedeRegistrar, setPuedeRegistrar] = useState(false);
+  const [ultimoRegistro, setUltimoRegistro] = useState(null);
 
-  // Verificar empleado en tiempo real Y si ya tiene asistencia reciente
+  // Constante para offset de Jalisco (UTC-6)
+  const JALISCO_OFFSET = -6;
+
+  // Función para obtener hora actual de Jalisco
+  const getCurrentJaliscoTime = () => {
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const hora = fechaJalisco.getUTCHours().toString().padStart(2, '0');
+    const minutos = fechaJalisco.getUTCMinutes().toString().padStart(2, '0');
+    
+    return `${hora}:${minutos}`;
+  };
+
+  // Función para verificar si es después de las 4:00 PM
+  const verificarSiEsDespuesDe4PM = () => {
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    const hora = fechaJalisco.getUTCHours();
+    return hora >= 16; // 16:00 = 4:00 PM
+  };
+
+  // Función para obtener fecha actual en formato Jalisco (DD/MM/YYYY)
+  const getCurrentJaliscoDate = () => {
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    
+    const dia = fechaJalisco.getUTCDate().toString().padStart(2, '0');
+    const mes = (fechaJalisco.getUTCMonth() + 1).toString().padStart(2, '0');
+    const año = fechaJalisco.getUTCFullYear();
+    
+    return `${dia}/${mes}/${año}`;
+  };
+
+  // Actualizar hora actual cada minuto
+  useEffect(() => {
+    const actualizarHora = () => {
+      const hora = getCurrentJaliscoTime();
+      setHoraActual(hora);
+      const es4PM = verificarSiEsDespuesDe4PM();
+      setEsDespuesDe4PM(es4PM);
+    };
+
+    // Actualizar inmediatamente
+    actualizarHora();
+    
+    // Actualizar cada minuto
+    const intervalo = setInterval(actualizarHora, 60000);
+    
+    return () => clearInterval(intervalo);
+  }, []);
+
+  // Verificar empleado en tiempo real
   useEffect(() => {
     const verificarEmpleado = async () => {
       if (numeroEmpleado.trim().length >= 1) {
@@ -47,27 +103,13 @@ export default function Home() {
               area: datos.department
             });
             
-            // Verificar si ya tiene asistencia reciente (menos de 20 horas)
-            const verificacionAsistencia = await verificarAsistenciaReciente(numeroEmpleado);
-            setTieneAsistenciaReciente(verificacionAsistencia.tiene_asistencia_reciente);
+            // Verificar asistencia de hoy
+            await verificarAsistenciaHoy(numeroEmpleado, datos.name);
             
-            if (verificacionAsistencia.tiene_asistencia_reciente) {
-              setMensaje({ 
-                texto: `Empleado encontrado: ${datos.name} - Ya registró asistencia recientemente`, 
-                tipo: 'warning' 
-              });
-              setProximoRegistroPermitido(verificacionAsistencia.proximo_registro_permitido);
-            } else {
-              setMensaje({ 
-                texto: `Empleado encontrado: ${datos.name}`, 
-                tipo: 'info' 
-              });
-              setProximoRegistroPermitido(null);
-            }
           } else {
             setInformacionEmpleado(null);
-            setTieneAsistenciaReciente(false);
-            setProximoRegistroPermitido(null);
+            setTieneAsistenciaHoy(false);
+            setPuedeRegistrar(false);
             setMensaje({ 
               texto: 'Empleado no encontrado en el sistema', 
               tipo: 'error' 
@@ -76,15 +118,15 @@ export default function Home() {
         } catch (error) {
           console.error('Error verificando empleado:', error);
           setInformacionEmpleado(null);
-          setTieneAsistenciaReciente(false);
-          setProximoRegistroPermitido(null);
+          setTieneAsistenciaHoy(false);
+          setPuedeRegistrar(false);
         } finally {
           setValidando(false);
         }
       } else {
         setInformacionEmpleado(null);
-        setTieneAsistenciaReciente(false);
-        setProximoRegistroPermitido(null);
+        setTieneAsistenciaHoy(false);
+        setPuedeRegistrar(false);
         setMensaje({ texto: '', tipo: '' });
       }
     };
@@ -98,33 +140,74 @@ export default function Home() {
     return () => clearTimeout(timerDebounce);
   }, [numeroEmpleado]);
 
-  // Función para verificar asistencia reciente
-  const verificarAsistenciaReciente = async (numeroEmpleado) => {
+  // Función para verificar asistencia de hoy - CORREGIDA
+  const verificarAsistenciaHoy = async (numero_empleado, nombreEmpleado = null) => {
     try {
-      const respuesta = await fetch(`/api/verificar-asistencia?numero_empleado=${numeroEmpleado}`);
+      const fechaHoy = getCurrentJaliscoDate();
+      const respuesta = await fetch(`/api/asistencias?numero_empleado=${numero_empleado}&fecha=${fechaHoy}&limite=10`);
+      
       if (respuesta.ok) {
-        const datos = await respuesta.json();
-        console.log('📊 Respuesta de verificar-asistencia:', datos);
-        return {
-          tiene_asistencia_reciente: datos.tiene_asistencia_reciente,
-          ultima_asistencia: datos.ultima_asistencia,
-          proximo_registro_permitido: datos.proximo_registro_permitido,
-          horas_restantes: datos.horas_restantes,
-          detalles: datos.detalles
-        };
-      } else {
-        const error = await respuesta.json();
-        console.error('❌ Error en verificar-asistencia:', error);
+        const registrosHoy = await respuesta.json();
+        
+        // Verificar lógica según la hora
+        const esDespuesDe4PMActual = verificarSiEsDespuesDe4PM();
+        
+        // Usar el nombre del parámetro o el estado existente
+        const nombre = nombreEmpleado || (informacionEmpleado ? informacionEmpleado.nombre : '');
+        
+        if (registrosHoy.length === 0) {
+          // No tiene registros hoy → puede registrar
+          setTieneAsistenciaHoy(false);
+          setPuedeRegistrar(true);
+          setUltimoRegistro(null);
+          
+          setMensaje({ 
+            texto: nombre ? `Empleado encontrado: ${nombre}. Puedes registrar entrada.` : 'Puedes registrar entrada.', 
+            tipo: 'info' 
+          });
+        } else {
+          // Tiene registros hoy
+          const ultimoRegistro = registrosHoy[0];
+          setUltimoRegistro(ultimoRegistro);
+          
+          if (esDespuesDe4PMActual) {
+            // Después de las 4 PM → siempre puede registrar (nuevo ciclo)
+            setTieneAsistenciaHoy(true);
+            setPuedeRegistrar(true);
+            
+            setMensaje({ 
+              texto: nombre ? `Empleado encontrado: ${nombre}. puedes registrar.` : 'Puedes registrar.', 
+              tipo: 'info' 
+            });
+          } else {
+            // Antes de las 4 PM → si ya registró hoy, no puede
+            const yaRegistroHoy = registrosHoy.some(r => r.tipo_registro === 'entrada');
+            
+            if (yaRegistroHoy) {
+              setTieneAsistenciaHoy(true);
+              setPuedeRegistrar(false);
+              
+              setMensaje({ 
+                texto: `Ya registraste entrada hoy. Espera hasta mañana para registrar nuevamente.`, 
+                tipo: 'warning' 
+              });
+            } else {
+              setTieneAsistenciaHoy(false);
+              setPuedeRegistrar(true);
+              
+              setMensaje({ 
+                texto: nombre ? `Empleado encontrado: ${nombre}. Puedes registrar entrada.` : 'Puedes registrar entrada.', 
+                tipo: 'info' 
+              });
+            }
+          }
+        }
       }
     } catch (error) {
-      console.error('❌ Error verificando asistencia reciente:', error);
+      console.error('❌ Error verificando asistencia hoy:', error);
+      setTieneAsistenciaHoy(false);
+      setPuedeRegistrar(true); // Por defecto permitir si hay error
     }
-    return { 
-      tiene_asistencia_reciente: false, 
-      ultima_asistencia: null, 
-      proximo_registro_permitido: null, 
-      horas_restantes: 0 
-    };
   };
 
   // Obtener registros recientes
@@ -150,13 +233,11 @@ export default function Home() {
     
     return new Promise((resolve) => {
       setTimeout(() => {
-        // Verificación exacta de 4 dígitos
         if (contrasenaInput.length !== 4) {
           resolve(false);
           return;
         }
         
-        // Solo dígitos numéricos
         if (!/^\d{4}$/.test(contrasenaInput)) {
           resolve(false);
           return;
@@ -194,7 +275,6 @@ export default function Home() {
       const esValida = await verificarContrasena(contrasena);
       
       if (esValida) {
-        // Redirigir al panel de administración
         window.location.href = '/admin';
       } else {
         setErrorAuth('Contraseña incorrecta. Inténtalo de nuevo.');
@@ -210,17 +290,14 @@ export default function Home() {
   };
 
   const manejarTeclaPresionada = (e) => {
-    // Permitir solo números
     if (!/[0-9]/.test(e.key) && e.key !== 'Backspace' && e.key !== 'Delete') {
       e.preventDefault();
     }
     
-    // Autosubmit al completar 4 dígitos
     if (contrasena.length === 3 && /[0-9]/.test(e.key)) {
       const nuevaContrasena = contrasena + e.key;
       setContrasena(nuevaContrasena);
       
-      // Pequeño delay para que se vea el último dígito
       setTimeout(() => {
         const eventoFalso = { preventDefault: () => {} };
         manejarEnvioContrasena(eventoFalso);
@@ -251,13 +328,19 @@ export default function Home() {
       return;
     }
 
-    // Verificar nuevamente si ya tiene asistencia reciente
-    const verificacionAsistencia = await verificarAsistenciaReciente(numeroEmpleado);
-    if (verificacionAsistencia.tiene_asistencia_reciente) {
-      setTieneAsistenciaReciente(true);
-      setProximoRegistroPermitido(verificacionAsistencia.proximo_registro_permitido);
+    if (!puedeRegistrar) {
       setMensaje({ 
-        texto: `Ya registraste asistencia recientemente. Puedes registrar nuevamente en ${verificacionAsistencia.horas_restantes} horas.`, 
+        texto: 'No puedes registrar en este momento', 
+        tipo: 'warning' 
+      });
+      return;
+    }
+
+    // Verificar nuevamente antes de enviar
+    await verificarAsistenciaHoy(numeroEmpleado, informacionEmpleado.nombre);
+    if (!puedeRegistrar) {
+      setMensaje({ 
+        texto: 'No puedes registrar en este momento.', 
         tipo: 'warning' 
       });
       return;
@@ -265,34 +348,43 @@ export default function Home() {
 
     setCargando(true);
     try {
+      // Determinar tipo de registro automáticamente
+      let tipoRegistro = 'entrada';
+      
       const respuesta = await fetch('/api/asistencias', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ numero_empleado: numeroEmpleado }),
+        body: JSON.stringify({ 
+          numero_empleado: numeroEmpleado,
+        }),
       });
 
       const datos = await respuesta.json();
 
       if (respuesta.ok) {
+        const mensajeRegistro = datos.tipo_registro === 'entrada' 
+          ? `¡Entrada registrada exitosamente! Bienvenido/a ${datos.nombre_empleado}`
+          : `¡Registro exitoso! ${datos.nombre_empleado}`;
+        
         setMensaje({ 
-          texto: `¡Asistencia registrada exitosamente! Bienvenido/a ${datos.nombre_empleado}`, 
+          texto: mensajeRegistro, 
           tipo: 'success' 
         });
         
         // Mostrar detalles del registro
         setTimeout(() => {
           setMensaje({ 
-            texto: `Registrado: ${datos.fecha} ${datos.hora} - ${datos.area}`, 
+            texto: `Registrado: ${datos.fecha} ${datos.hora} - ${datos.area} (${datos.tipo_registro})`, 
             tipo: 'success' 
           });
         }, 2000);
         
         setNumeroEmpleado('');
         setInformacionEmpleado(null);
-        setTieneAsistenciaReciente(false);
-        setProximoRegistroPermitido(null);
+        setTieneAsistenciaHoy(false);
+        setPuedeRegistrar(false);
         
         // Actualizar registros recientes
         obtenerRegistrosRecientes();
@@ -307,7 +399,6 @@ export default function Home() {
           tipo: 'error' 
         });
         
-        // Auto-limpiar mensaje de error después de 5 segundos
         setTimeout(() => {
           setMensaje({ texto: '', tipo: '' });
         }, 5000);
@@ -346,6 +437,23 @@ export default function Home() {
     });
   };
 
+  // Determinar texto del botón
+  const getButtonText = () => {
+    if (cargando) return 'Registrando...';
+    
+    if (!informacionEmpleado) return 'Registrar Asistencia';
+    
+    if (!puedeRegistrar) {
+      return 'Espera hasta mañana';
+    }
+    
+    if (esDespuesDe4PM) {
+      return 'Registrar hasta mañana';
+    }
+    
+    return 'Registrar Entrada';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
       <div className="w-full max-w-4xl">
@@ -356,19 +464,19 @@ export default function Home() {
               {/* Encabezado */}
               <div className="text-center mb-10">
                 <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full mb-4">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <ClockIcon className="w-8 h-8 text-blue-600" />
                 </div>
                 <h1 className="text-3xl font-bold text-gray-800 mb-2">
                   Control de Asistencias
                 </h1>
                 <p className="text-gray-600 mb-4">
-                  Registra tu entrada con tu número de empleado
+                  Registra tu entrada y salida con tu número de empleado
                 </p>
                 
                 {/* Componente Reloj */}
                 <AttendanceClock />
+                
+
               </div>
 
               {/* Formulario */}
@@ -411,22 +519,41 @@ export default function Home() {
                         <div className="ml-4">
                           <p className="text-sm font-medium text-blue-900">{informacionEmpleado.nombre}</p>
                           <p className="text-xs text-blue-700">{informacionEmpleado.area}</p>
+                          {ultimoRegistro && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Último registro: {formatearHora(ultimoRegistro.marca_tiempo)} ({ultimoRegistro.tipo_registro})
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Advertencia de asistencia reciente */}
-                  {tieneAsistenciaReciente && proximoRegistroPermitido && (
+                  {/* Mensaje sobre registro después de 4 PM */}
+                  {esDespuesDe4PM && informacionEmpleado && puedeRegistrar && (
+                    <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl">
+                      <div className="flex items-start">
+                        <InformationCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                        <div className="ml-3">
+                          <p className="text-xs text-green-700 mt-1">
+                            Puedes registrar normalmente. Al día siguiente podrás registrar entrada sin problemas.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Advertencia si no puede registrar */}
+                  {informacionEmpleado && !puedeRegistrar && !esDespuesDe4PM && (
                     <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-100 rounded-xl">
                       <div className="flex items-start">
                         <InformationCircleIcon className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                         <div className="ml-3">
                           <p className="text-sm font-medium text-amber-800">
-                            Ya registraste asistencia recientemente
+                            Ya registraste entrada hoy
                           </p>
                           <p className="text-xs text-amber-700 mt-1">
-                            Puedes registrar nuevamente después de: {formatearFechaHora(proximoRegistroPermitido)}
+                            Espera hasta mañana para registrar nuevamente
                           </p>
                         </div>
                       </div>
@@ -436,7 +563,7 @@ export default function Home() {
 
                 <button
                   type="submit"
-                  disabled={cargando || !informacionEmpleado || tieneAsistenciaReciente}
+                  disabled={cargando || !informacionEmpleado || !puedeRegistrar}
                   className="btn-primary w-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {cargando ? (
@@ -445,9 +572,9 @@ export default function Home() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Registrando en base de datos...
+                      Registrando...
                     </>
-                  ) : tieneAsistenciaReciente ? 'Ya registrado (Espere 20h)' : 'Registrar Entrada'}
+                  ) : getButtonText()}
                 </button>
               </form>
 
@@ -477,11 +604,6 @@ export default function Home() {
                       {mensaje.tipo === 'success' && (
                         <p className="text-sm mt-1 text-green-600">
                           La información se ha guardado en la base de datos
-                        </p>
-                      )}
-                      {mensaje.tipo === 'warning' && proximoRegistroPermitido && (
-                        <p className="text-sm mt-1 text-amber-600">
-                          Próximo registro permitido: {formatearFechaHora(proximoRegistroPermitido)}
                         </p>
                       )}
                     </div>
@@ -530,13 +652,19 @@ export default function Home() {
                   <svg className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                   </svg>
-                  Presiona "Registrar Entrada" para guardar 
+                  Registra entrada al llegar (1 por día)
                 </li>
                 <li className="flex items-start">
-                  <svg className="w-4 h-4 text-amber-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                   </svg>
-                  Solo 1 registro cada 20 horas por empleado
+                  Mañana: Registra libremente
+                </li>
+                <li className="flex items-start">
+                  <svg className="w-4 h-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Al día siguiente: Entrada normal sin problemas
                 </li>
               </ul>
             </div>
@@ -582,9 +710,18 @@ export default function Home() {
                           <p className="text-sm font-medium text-gray-900">
                             {formatearHora(registro.marca_tiempo)}
                           </p>
-                          <p className="text-xs text-gray-500">
-                            {registro.fecha}
-                          </p>
+                          <div className="flex items-center justify-end gap-1 mt-1">
+                            <p className="text-xs text-gray-500">
+                              {registro.fecha}
+                            </p>
+                            <span className={`px-1 py-0.5 text-xs rounded ${
+                              registro.tipo_registro === 'entrada' 
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {registro.tipo_registro || 'entrada'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -625,7 +762,7 @@ export default function Home() {
           <div className="inline-flex items-center justify-center px-4 py-2 bg-white rounded-xl shadow-sm">
             <p className="text-sm text-gray-600 flex items-center gap-2">
               <CircleStackIcon className="w-4 h-4" />
-              Sistema conectado a MongoDB • Límite: 20h entre registros • v3.0
+              Sistema conectado a MongoDB • Registro flexible • Al día siguiente: entrada normal
             </p>
           </div>
         </div>

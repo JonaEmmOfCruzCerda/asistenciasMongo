@@ -2,6 +2,7 @@
 import mongoose from 'mongoose';
 
 // Esquema de Empleado
+// En /app/models/Empleado.js, agregar el campo departamento:
 const EsquemaEmpleado = new mongoose.Schema({
   numero_empleado: {
     type: String,
@@ -23,6 +24,12 @@ const EsquemaEmpleado = new mongoose.Schema({
     trim: true
   },
   
+  departamento: { // NUEVO CAMPO
+    type: String,
+    required: [true, 'El departamento es requerido'],
+    trim: true
+  },
+  
   activo: {
     type: Boolean,
     default: true,
@@ -39,7 +46,6 @@ const EsquemaEmpleado = new mongoose.Schema({
     default: Date.now
   }
 }, {
-  // Traducción de timestamps
   timestamps: { 
     createdAt: 'fecha_creacion', 
     updatedAt: 'fecha_actualizacion' 
