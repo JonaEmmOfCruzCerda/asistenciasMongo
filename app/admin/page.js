@@ -24,10 +24,10 @@ import {
   ChevronRightIcon,
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
-  ChatBubbleLeftRightIcon,
   PaperAirplaneIcon,
   CalendarDaysIcon
 } from '@heroicons/react/24/outline';
+import * as XLSX from 'xlsx-js-style';
 
 // Constante para offset de Jalisco (UTC-6)
 const JALISCO_OFFSET = -6;
@@ -73,15 +73,23 @@ export default function AdminPage() {
   const [attendanceCheckData, setAttendanceCheckData] = useState([]);
   const [attendanceCheckLoading, setAttendanceCheckLoading] = useState(false);
   
-  // NUEVOS ESTADOS PARA OBSERVACIONES
+  // ESTADOS PARA OBSERVACIONES
   const [observaciones, setObservaciones] = useState({});
   const [observacionInput, setObservacionInput] = useState({});
   const [savingObservacion, setSavingObservacion] = useState({});
   
-  // NUEVOS ESTADOS PARA TABLA SEMANAL
+  // ESTADOS PARA TABLA SEMANAL CON FILTRO POR SEMANAS
   const [weeklyData, setWeeklyData] = useState([]);
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [weekRange, setWeekRange] = useState({ start: '', end: '' });
+  const [selectedWeek, setSelectedWeek] = useState(1); // Estado para semana seleccionada
+  const [availableWeeks, setAvailableWeeks] = useState([]); // Lista de semanas disponibles
+  const [weekStats, setWeekStats] = useState({
+    totalEmpleados: 0,
+    totalPresentes: 0,
+    totalFaltas: 0,
+    porcentajeAsistencia: 0
+  });
   
   // PAGINACIÓN - Estados para cada tabla
   const [currentAttendancePage, setCurrentAttendancePage] = useState(1);
@@ -94,6 +102,8 @@ export default function AdminPage() {
   const exportAttendanceMenuRef = useRef(null);
   const exportEmployeesMenuRef = useRef(null);
   const exportWeeklyMenuRef = useRef(null);
+
+  // ============ FUNCIONES DE FECHA Y HORA ============
   
   // Función para obtener fecha actual en formato Jalisco
   const getCurrentJaliscoDate = () => {
@@ -144,146 +154,152 @@ export default function AdminPage() {
     return `${dia}/${mes}/${año}`;
   };
 
+  // ============ FUNCIONES PARA MANEJO DE SEMANAS ============
   
-
-  // REEMPLAZA estas funciones en tu código:
-
-  
-
-// Función para obtener el inicio de la semana (LUNES a viernes)
-const getWeekStartDate = () => {
-  const hoy = new Date();
-  const diaSemana = hoy.getDay(); // 0 = Domingo, 1 = Lunes, etc.
-  
-  // Calcular días desde el último lunes (lunes = 1)
-  let diasDesdeLunes;
-  if (diaSemana === 0) { // Domingo
-    diasDesdeLunes = 6; // Retroceder al lunes anterior
-  } else if (diaSemana === 1) { // Lunes
-    diasDesdeLunes = 0; // Ya es lunes
-  } else {
-    diasDesdeLunes = diaSemana - 1; // Martes(2) -> 1, Miércoles(3) -> 2, etc.
-  }
-  
-  const inicioSemana = new Date(hoy);
-  inicioSemana.setDate(hoy.getDate() - diasDesdeLunes);
-  
-  // Formatear a DD/MM/YYYY
-  const dia = inicioSemana.getDate().toString().padStart(2, '0');
-  const mes = (inicioSemana.getMonth() + 1).toString().padStart(2, '0');
-  const año = inicioSemana.getFullYear();
-  
-  return `${dia}/${mes}/${año}`;
-};
-
-// Función para obtener el fin de la semana (lunes a VIERNES)
-const getWeekEndDate = () => {
-  const inicioSemana = getWeekStartDate();
-  const [dia, mes, año] = inicioSemana.split('/').map(Number);
-  const fechaInicio = new Date(año, mes - 1, dia);
-  
-  // Sumar 4 días para llegar al viernes (lunes + 4 = viernes)
-  const fechaFin = new Date(fechaInicio);
-  fechaFin.setDate(fechaInicio.getDate() + 4);
-  
-  // Formatear a DD/MM/YYYY
-  const diaFin = fechaFin.getDate().toString().padStart(2, '0');
-  const mesFin = (fechaFin.getMonth() + 1).toString().padStart(2, '0');
-  const añoFin = fechaFin.getFullYear();
-  
-  return `${diaFin}/${mesFin}/${añoFin}`;
-};
-
-// Función para obtener rango de semana actual según tu fecha de inicio (6 de enero 2026)
-const getCurrentWeekRange = () => {
-  const hoy = new Date();
-  const fechaInicioSistema = new Date(2026, 0, 6); // 6 de enero de 2026 (mes 0 = enero)
-  
-  // Si la fecha actual es anterior al 6 de enero 2026
-  if (hoy < fechaInicioSistema) {
-    return {
-      start: '06/01/2026',
-      end: '10/01/2026'
-    };
-  }
-  
-  const diaSemana = hoy.getDay();
-  
-  // Calcular días desde el último lunes
-  let diasDesdeLunes;
-  if (diaSemana === 0) { // Domingo
-    diasDesdeLunes = 6; // Retroceder al lunes anterior
-  } else if (diaSemana === 1) { // Lunes
-    diasDesdeLunes = 0; // Ya es lunes
-  } else {
-    diasDesdeLunes = diaSemana - 1; // Martes(2) -> 1, etc.
-  }
-  
-  const lunes = new Date(hoy);
-  lunes.setDate(hoy.getDate() - diasDesdeLunes);
-  
-  const viernes = new Date(lunes);
-  viernes.setDate(lunes.getDate() + 4);
-  
-  // Formatear fechas
-  const formatDate = (date) => {
-    const dia = date.getDate().toString().padStart(2, '0');
-    const mes = (date.getMonth() + 1).toString().padStart(2, '0');
-    const año = date.getFullYear();
-    return `${dia}/${mes}/${año}`;
-  };
-  
-  return {
-    start: formatDate(lunes),
-    end: formatDate(viernes)
-  };
-};
-
-const [availableDates, setAvailableDates] = useState([]);
-const [loadingDates, setLoadingDates] = useState(false);
-
-// Función para cargar fechas disponibles
-const fetchAvailableDates = async () => {
-  setLoadingDates(true);
-  try {
-    console.log('📅 Cargando fechas disponibles...');
-    const response = await fetch('/api/fechas-disponibles');
+  // Función para obtener rango de fecha por número de semana (Semana 1: 5-9 enero 2026)
+  const getWeekRangeByNumber = (weekNumber) => {
+    const fechaInicio = new Date(2026, 0, 5); // 5 de enero 2026 (Semana 1, Lunes)
     
-    if (response.ok) {
-      const dates = await response.json();
-      console.log(`✅ ${dates.length} fechas cargadas`);
-      setAvailableDates(dates);
-    } else {
-      console.error('❌ Error cargando fechas');
-      setAvailableDates([]);
-    }
-  } catch (error) {
-    console.error('❌ Error en fetchAvailableDates:', error);
-    setAvailableDates([]);
-  } finally {
-    setLoadingDates(false);
-  }
-};
+    // Calcular fecha de inicio de la semana solicitada
+    const inicioSemana = new Date(fechaInicio);
+    inicioSemana.setDate(fechaInicio.getDate() + ((weekNumber - 1) * 7));
+    
+    // Calcular fecha de fin (Lunes + 4 días = Viernes)
+    const finSemana = new Date(inicioSemana);
+    finSemana.setDate(inicioSemana.getDate() + 4);
+    
+    // Formatear fechas
+    const formatDate = (date) => {
+      const dia = date.getDate().toString().padStart(2, '0');
+      const mes = (date.getMonth() + 1).toString().padStart(2, '0');
+      const año = date.getFullYear();
+      return `${dia}/${mes}/${año}`;
+    };
+    
+    return {
+      start: formatDate(inicioSemana),
+      end: formatDate(finSemana),
+      numero: weekNumber
+    };
+  };
 
-// Luego en tu useEffect, usa:
-useEffect(() => {
-  fetchDataFromDB();
-  fetchEmployees();
-  fetchAvailableDates();
+  // Función para calcular número de semana actual
+  const getCurrentWeekNumber = () => {
+    const hoy = new Date();
+    const fechaInicio = new Date(2026, 0, 5); // 5 de enero 2026
+    
+    // Si la fecha actual es anterior al 5 de enero 2026
+    if (hoy < fechaInicio) {
+      return 1;
+    }
+    
+    // Calcular diferencia en días
+    const diffTime = Math.abs(hoy - fechaInicio);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Calcular número de semana (cada 7 días)
+    const weekNumber = Math.floor(diffDays / 7) + 1;
+    
+    return weekNumber;
+  };
+
+  // Función para obtener rango de semana actual
+  const getCurrentWeekRange = () => {
+    const weekNumber = getCurrentWeekNumber();
+    return getWeekRangeByNumber(weekNumber);
+  };
+
+  // Función para cambiar de semana
+  const handleWeekChange = (weekNumber) => {
+    setSelectedWeek(weekNumber);
+    const weekRange = getWeekRangeByNumber(weekNumber);
+    setWeekRange(weekRange);
+    fetchWeeklyData(weekRange.start, weekRange.end);
+  };
+
+  // ============ FUNCIONES DE CARGA DE DATOS ============
   
-  // Cargar observaciones
-  fetchObservaciones();
-  
-  // Obtener rango de semana actual (LUNES a VIERNES)
-  const weekRange = getCurrentWeekRange();
-  console.log('📅 Rango de semana actual:', weekRange);
-  setWeekRange(weekRange);
-  fetchWeeklyData(weekRange.start, weekRange.end);
-  
-  // Actualizar automáticamente cada 30 segundos
-  const interval = setInterval(fetchDataFromDB, 30000);
-  return () => clearInterval(interval);
-}, []);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [loadingDates, setLoadingDates] = useState(false);
+
+  // Función para cargar fechas disponibles
+  const fetchAvailableDates = async () => {
+    setLoadingDates(true);
+    try {
+      console.log('📅 Cargando fechas disponibles...');
+      const response = await fetch('api/fechas-disponibles');
+      
+      if (response.ok) {
+        const dates = await response.json();
+        console.log(`✅ ${dates.length} fechas cargadas`);
+        setAvailableDates(dates);
+      } else {
+        console.error('❌ Error cargando fechas');
+        setAvailableDates([]);
+      }
+    } catch (error) {
+      console.error('❌ Error en fetchAvailableDates:', error);
+      setAvailableDates([]);
+    } finally {
+      setLoadingDates(false);
+    }
+  };
+
+  // Función para cargar semanas disponibles
+  const fetchAvailableWeeks = async () => {
+    try {
+      console.log('📅 Cargando semanas disponibles...');
+      const response = await fetch('/api/semanas-disponibles');
+      
+      if (response.ok) {
+        const semanas = await response.json();
+        console.log(`✅ ${semanas.length} semanas cargadas`);
+        
+        // Ordenar por número de semana
+        const semanasOrdenadas = semanas.sort((a, b) => a.numero - b.numero);
+        setAvailableWeeks(semanasOrdenadas);
+        
+        // Si no hay semana seleccionada, seleccionar la primera
+        if (semanasOrdenadas.length > 0 && !selectedWeek) {
+          setSelectedWeek(semanasOrdenadas[0].numero);
+          setWeekRange({
+            start: semanasOrdenadas[0].inicio,
+            end: semanasOrdenadas[0].fin
+          });
+        }
+      } else {
+        console.error('❌ Error cargando semanas');
+        // Crear semanas por defecto si falla la API
+        generarSemanasPorDefecto();
+      }
+    } catch (error) {
+      console.error('❌ Error en fetchAvailableWeeks:', error);
+      generarSemanasPorDefecto();
+    }
+  };
+
+  // Función para generar semanas por defecto
+  const generarSemanasPorDefecto = () => {
+    const semanas = [];
+    for (let i = 1; i <= 4; i++) {
+      const weekRange = getWeekRangeByNumber(i);
+      semanas.push({
+        numero: i,
+        inicio: weekRange.start,
+        fin: weekRange.end,
+        registros: 0
+      });
+    }
+    setAvailableWeeks(semanas);
+    
+    if (semanas.length > 0) {
+      setSelectedWeek(1);
+      setWeekRange({
+        start: semanas[0].inicio,
+        end: semanas[0].fin
+      });
+    }
+  };
 
   // Función para verificar si un empleado registró antes de las 9:00 AM
   const checkAttendanceBefore9AM = (attendanceRecords) => {
@@ -295,11 +311,8 @@ useEffect(() => {
       const recordDate = new Date(record.marca_tiempo || record.timestamp);
       const recordDateStr = convertToJaliscoDateString(recordDate);
       
-      // Verificar si es hoy
       if (recordDateStr === today) {
         const recordHour = new Date(recordDate.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000)).getUTCHours();
-        
-        // Verificar si es antes de las 9:00 AM
         if (recordHour < 9) {
           return true;
         }
@@ -309,7 +322,7 @@ useEffect(() => {
     return false;
   };
 
-  // Función para obtener el tipo de registro (entrada/salida) de hoy
+  // Función para obtener el tipo de registro de hoy
   const getTodayAttendanceType = (attendanceRecords) => {
     if (!attendanceRecords || attendanceRecords.length === 0) return 'Sin registro';
     
@@ -322,7 +335,6 @@ useEffect(() => {
     
     if (todayRecords.length === 0) return 'Sin registro';
     
-    // Obtener el último registro de hoy
     const latestRecord = todayRecords.reduce((latest, current) => {
       return new Date(current.marca_tiempo || current.timestamp) > 
              new Date(latest.marca_tiempo || latest.timestamp) ? current : latest;
@@ -358,14 +370,13 @@ useEffect(() => {
     return `${hora}:${minutos}`;
   };
 
-  // NUEVA FUNCIÓN: Cargar observaciones
+  // Función: Cargar observaciones
   const fetchObservaciones = async () => {
     try {
       const response = await fetch('/api/observaciones');
       if (response.ok) {
         const data = await response.json();
         
-        // Convertir array a objeto por employeeId
         const observacionesObj = {};
         data.forEach(obs => {
           observacionesObj[obs.employeeId] = obs.text;
@@ -378,7 +389,7 @@ useEffect(() => {
     }
   };
 
-  // NUEVA FUNCIÓN: Guardar observación
+  // Función: Guardar observación
   const saveObservacion = async (employeeId, text) => {
     setSavingObservacion(prev => ({ ...prev, [employeeId]: true }));
     
@@ -402,7 +413,6 @@ useEffect(() => {
           [employeeId]: text
         }));
         
-        // Limpiar input
         setObservacionInput(prev => ({
           ...prev,
           [employeeId]: ''
@@ -420,13 +430,12 @@ useEffect(() => {
     }
   };
 
-  // Función para cargar datos semanales - VERSIÓN MEJORADA
+ // Función para cargar datos semanales
 const fetchWeeklyData = async (startDate, endDate) => {
   setWeeklyLoading(true);
   try {
     console.log('📅 Solicitando datos semanales para:', { startDate, endDate });
     
-    // Usar fetch con manejo de errores mejorado
     const response = await fetch(`/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`, {
       headers: {
         'Cache-Control': 'no-cache'
@@ -438,21 +447,40 @@ const fetchWeeklyData = async (startDate, endDate) => {
     }
     
     const data = await response.json();
-    console.log('✅ Datos semanales recibidos:', {
-      cantidad: data.length,
-      primerEmpleado: data[0]?.nombre,
-      fechaInicio: data[0]?.fechas?.viernes,
-      fechaFin: data[0]?.fechas?.jueves
-    });
+    console.log('✅ Datos semanales recibidos:', data);
+    console.log('📊 Estructura del primer elemento:', data[0] ? Object.keys(data[0]) : 'No hay datos');
     
-    // Filtrar solo empleados activos si es necesario
-    const activeEmployees = employees.filter(emp => emp.activo);
-    const filteredData = data.filter(item => 
-      activeEmployees.some(emp => emp.nombre_completo === item.nombre)
-    );
+    if (data.length > 0) {
+      console.log('📝 Ejemplo de datos recibidos:', {
+        nombre: data[0].nombre,
+        area: data[0].area,
+        lunes: data[0].lunes,
+        martes: data[0].martes,
+        faltas: data[0].faltas
+      });
+    }
     
-    console.log('👥 Empleados activos en semana:', filteredData.length);
-    setWeeklyData(filteredData.length > 0 ? filteredData : data);
+    // Combinar con observaciones
+    const dataConObservaciones = data.map(item => ({
+      ...item,
+      observacion: observaciones[item.id] || '' // Agregar observaciones si existen
+    }));
+    
+    // Filtrar solo empleados activos (si hay empleados cargados)
+    let filteredData = dataConObservaciones;
+    if (employees.length > 0) {
+      filteredData = dataConObservaciones.filter(item => 
+        employees.some(emp => emp.nombre_completo === item.nombre && emp.activo)
+      );
+      console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
+    }
+    
+    // Calcular estadísticas de la semana
+    const estadisticas = calcularEstadisticasSemana(filteredData);
+    console.log('📊 Estadísticas calculadas:', estadisticas);
+    setWeekStats(estadisticas);
+    
+    setWeeklyData(filteredData);
     
   } catch (error) {
     console.error('❌ Error cargando datos semanales:', error);
@@ -463,49 +491,43 @@ const fetchWeeklyData = async (startDate, endDate) => {
   }
 };
 
-// Función para generar datos de ejemplo (solo desarrollo)
-const generateSampleWeeklyData = (startDate, endDate) => {
-  const sampleEmployees = [
-    { id: '001', nombre: 'Juan Pérez', area: 'Ventas', departamento: 'Comercial' },
-    { id: '002', nombre: 'María García', area: 'IT', departamento: 'Sistemas' },
-    { id: '003', nombre: 'Carlos López', area: 'RH', departamento: 'Reclutamiento' },
-    { id: '004', nombre: 'Ana Martínez', area: 'Finanzas', departamento: 'Contabilidad' },
-    { id: '005', nombre: 'Pedro Sánchez', area: 'Producción', departamento: 'Manufactura' },
-  ];
-  
-  return sampleEmployees.map(emp => ({
-    ...emp,
-    lunes: Math.random() > 0.3 ? 'X' : '',
-    martes: Math.random() > 0.3 ? 'X' : '',
-    miercoles: Math.random() > 0.3 ? 'X' : '',
-    jueves: Math.random() > 0.3 ? 'X' : '',
-    viernes: Math.random() > 0.3 ? 'X' : '',
-    faltas: Math.floor(Math.random() * 3),
-    fechas: {
-      lunes: startDate,
-      martes: startDate,
-      miercoles: startDate,
-      jueves: startDate,
-      viernes: endDate,
-    },
-    esFuturo: {
-      lunes: false,
-      martes: false,
-      miercoles: false,
-      jueves: false,
-      viernes: false,
-    },
-    esInactivo: {
-      lunes: false,
-      martes: false,
-      miercoles: false,
-      jueves: false,
-      viernes: false,
+  // Función para calcular estadísticas de la semana
+  const calcularEstadisticasSemana = (datos) => {
+    if (!datos || datos.length === 0) {
+      return {
+        totalEmpleados: 0,
+        totalPresentes: 0,
+        totalFaltas: 0,
+        porcentajeAsistencia: 0
+      };
     }
-  }));
-};
+    
+    let totalPresentes = 0;
+    let totalFaltas = 0;
+    
+    datos.forEach(empleado => {
+      const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
+      dias.forEach(dia => {
+        if (empleado[dia] === 'X') {
+          totalPresentes++;
+        } else if (empleado[dia] === '' && !empleado.esFuturo?.[dia] && !empleado.esInactivo?.[dia]) {
+          totalFaltas++;
+        }
+      });
+    });
+    
+    const totalDias = datos.length * 5; // 5 días por empleado
+    const porcentajeAsistencia = totalDias > 0 ? (totalPresentes / totalDias) * 100 : 0;
+    
+    return {
+      totalEmpleados: datos.length,
+      totalPresentes,
+      totalFaltas,
+      porcentajeAsistencia: parseFloat(porcentajeAsistencia.toFixed(1))
+    };
+  };
 
-  // Función para cargar datos de verificación de asistencia (MODIFICADA)
+  // Función para cargar datos de verificación de asistencia
   const fetchAttendanceCheckData = async () => {
     setAttendanceCheckLoading(true);
     try {
@@ -579,105 +601,96 @@ const generateSampleWeeklyData = (startDate, endDate) => {
   };
 
   // Obtener datos de MongoDB
-  // En fetchDataFromDB, después de cargar los datos, actualiza las fechas
-const fetchDataFromDB = async () => {
-  setRefreshing(true);
-  setDbStatus('conectando');
-  
-  try {
-    console.log('🔄 Iniciando carga de datos desde MongoDB...');
+  const fetchDataFromDB = async () => {
+    setRefreshing(true);
+    setDbStatus('conectando');
     
-    // Obtener estadísticas desde la API
-    const statsResponse = await fetch('/api/estadisticas');
-    
-    if (!statsResponse.ok) {
-      const errorText = await statsResponse.text();
-      console.error('❌ Error en estadísticas:', statsResponse.status, errorText);
+    try {
+      console.log('🔄 Iniciando carga de datos desde MongoDB...');
       
-      // Intentar conectar directamente a las APIs individuales
-      await fetchDirectAPIs();
-      return;
-    }
-    
-    const statsData = await statsResponse.json();
-    console.log('📊 Datos de estadísticas:', statsData);
-    
-    // Verificar si hay un error en los datos
-    if (statsData.error) {
-      console.warn('⚠️ Estadísticas con error:', statsData.error);
+      const statsResponse = await fetch('/api/estadisticas');
+      
+      if (!statsResponse.ok) {
+        const errorText = await statsResponse.text();
+        console.error('❌ Error en estadísticas:', statsResponse.status, errorText);
+        await fetchDirectAPIs();
+        return;
+      }
+      
+      const statsData = await statsResponse.json();
+      
+      if (statsData.error) {
+        console.warn('⚠️ Estadísticas con error:', statsData.error);
+        setStats({
+          total_empleados: statsData.total_empleados || 0,
+          empleados_activos: statsData.empleados_activos || 0,
+          total_asistencias: statsData.total_asistencias || 0,
+          asistencias_hoy: statsData.asistencias_hoy || 0,
+          empleados_unicos_hoy: statsData.empleados_unicos_hoy || 0,
+          registros_por_area: statsData.registros_por_area || {}
+        });
+      } else {
+        setStats(statsData);
+      }
+      
+      const params = new URLSearchParams();
+      if (searchTerm) params.append('buscar', searchTerm);
+      if (dateFilter) params.append('fecha', dateFilter);
+      params.append('limite', '1000');
+      
+      const attendanceResponse = await fetch(`/api/asistencias?${params}`);
+      
+      if (!attendanceResponse.ok) {
+        console.error('❌ Error en asistencias:', attendanceResponse.status);
+        setAttendanceData([]);
+      } else {
+        const attendanceData = await attendanceResponse.json();
+        console.log(`📝 ${attendanceData.length} registros cargados`);
+        
+        const processedData = attendanceData.map(record => ({
+          ...record,
+          employeeId: record.numero_empleado || '',
+          employeeName: record.nombre_empleado || '',
+          date: record.fecha || '',
+          time: record.hora || '',
+          timestamp: record.marca_tiempo || new Date().toISOString(),
+          department: record.area_empleado || '',
+          type: record.tipo_registro || 'entrada'
+        }));
+        
+        setAttendanceData(processedData);
+      }
+      
+      await fetchAvailableDates();
+      
+      setLastUpdated(new Date());
+      setDbStatus('conectado');
+      
+    } catch (error) {
+      console.error('❌ Error fetching data from MongoDB:', error);
+      setDbStatus('error');
+      
       setStats({
-        total_empleados: statsData.total_empleados || 0,
-        empleados_activos: statsData.empleados_activos || 0,
-        total_asistencias: statsData.total_asistencias || 0,
-        asistencias_hoy: statsData.asistencias_hoy || 0,
-        empleados_unicos_hoy: statsData.empleados_unicos_hoy || 0,
-        registros_por_area: statsData.registros_por_area || {}
+        total_empleados: 0,
+        empleados_activos: 0,
+        total_asistencias: 0,
+        asistencias_hoy: 0,
+        empleados_unicos_hoy: 0,
+        registros_por_area: {}
       });
-    } else {
-      setStats(statsData);
-    }
-    
-    // Obtener registros de asistencia con filtros
-    const params = new URLSearchParams();
-    if (searchTerm) params.append('buscar', searchTerm);
-    if (dateFilter) params.append('fecha', dateFilter);
-    params.append('limite', '1000');
-    
-    const attendanceResponse = await fetch(`/api/asistencias?${params}`);
-    
-    if (!attendanceResponse.ok) {
-      console.error('❌ Error en asistencias:', attendanceResponse.status);
+      
       setAttendanceData([]);
-    } else {
-      const attendanceData = await attendanceResponse.json();
-      console.log(`📝 ${attendanceData.length} registros cargados`);
-      
-      const processedData = attendanceData.map(record => ({
-        ...record,
-        employeeId: record.numero_empleado || '',
-        employeeName: record.nombre_empleado || '',
-        date: record.fecha || '',
-        time: record.hora || '',
-        timestamp: record.marca_tiempo || new Date().toISOString(),
-        department: record.area_empleado || '',
-        type: record.tipo_registro || 'entrada'
-      }));
-      
-      setAttendanceData(processedData);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    
-    // ACTUALIZAR LA LISTA DE FECHAS DISPONIBLES
-    await fetchAvailableDates();
-    
-    setLastUpdated(new Date());
-    setDbStatus('conectado');
-    
-  } catch (error) {
-    console.error('❌ Error fetching data from MongoDB:', error);
-    setDbStatus('error');
-    
-    setStats({
-      total_empleados: 0,
-      empleados_activos: 0,
-      total_asistencias: 0,
-      asistencias_hoy: 0,
-      empleados_unicos_hoy: 0,
-      registros_por_area: {}
-    });
-    
-    setAttendanceData([]);
-  } finally {
-    setLoading(false);
-    setRefreshing(false);
-  }
-};
+  };
 
-  // Función alternativa para conectar a APIs directamente si /api/estadisticas falla
+  // Función alternativa para conectar a APIs directamente
   const fetchDirectAPIs = async () => {
     try {
       console.log('🔄 Intentando conexión directa a APIs...');
       
-      // Obtener empleados
       const empleadosResponse = await fetch('/api/empleados');
       let total_empleados = 0;
       let empleados_activos = 0;
@@ -689,7 +702,6 @@ const fetchDataFromDB = async () => {
         setEmployees(empleados);
       }
       
-      // Obtener asistencias
       const asistenciasResponse = await fetch('/api/asistencias?limite=1000');
       let total_asistencias = 0;
       let asistencias_hoy = 0;
@@ -712,7 +724,6 @@ const fetchDataFromDB = async () => {
         setAttendanceData(asistencias);
       }
       
-      // Establecer estadísticas
       setStats({
         total_empleados,
         empleados_activos,
@@ -731,7 +742,7 @@ const fetchDataFromDB = async () => {
     }
   };
 
-  // Cargar empleados (MODIFICADA para ordenar por departamento)
+  // Cargar empleados
   const fetchEmployees = async () => {
     setEmployeesLoading(true);
     try {
@@ -757,33 +768,32 @@ const fetchDataFromDB = async () => {
     }
   };
 
-  // Cargar datos iniciales
+  // ============ EFECTOS ============
+  
   useEffect(() => {
     fetchDataFromDB();
     fetchEmployees();
-    
-    // Cargar observaciones
     fetchObservaciones();
+    fetchAvailableWeeks();
+    fetchAvailableDates();
     
-    // Calcular semana actual (jueves a jueves)
-    const weekStart = getWeekStartDate();
-    const weekEnd = getWeekEndDate();
-    setWeekRange({ start: weekStart, end: weekEnd });
-    fetchWeeklyData(weekStart, weekEnd);
+    // Configurar semana inicial
+    const weekNumber = getCurrentWeekNumber();
+    const weekRange = getWeekRangeByNumber(weekNumber);
+    setSelectedWeek(weekNumber);
+    setWeekRange(weekRange);
+    fetchWeeklyData(weekRange.start, weekRange.end);
     
-    // Actualizar automáticamente cada 30 segundos
     const interval = setInterval(fetchDataFromDB, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Actualizar datos de verificación cuando cambian empleados o asistencias
   useEffect(() => {
     if (employees.length > 0 && !employeesLoading) {
       fetchAttendanceCheckData();
     }
   }, [employees, employeesLoading, attendanceData]);
 
-  // Cerrar menús desplegables al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (exportCheckMenuRef.current && !exportCheckMenuRef.current.contains(event.target)) {
@@ -811,27 +821,17 @@ const fetchDataFromDB = async () => {
   }, []);
 
   // ============ FUNCIONES DE PAGINACIÓN ============
-
-  // Función para obtener datos paginados de una tabla
+  
   const getPaginatedData = (data, currentPage, itemsPerPage = ITEMS_PER_PAGE) => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     return data.slice(startIndex, endIndex);
   };
 
-  // Función para calcular el total de páginas
   const getTotalPages = (data, itemsPerPage = ITEMS_PER_PAGE) => {
     return Math.ceil(data.length / itemsPerPage);
   };
 
-  // Función para cambiar de página
-  const goToPage = (page, setPageFunction, totalPages) => {
-    if (page >= 1 && page <= totalPages) {
-      setPageFunction(page);
-    }
-  };
-
-  // Función para renderizar controles de paginación
   const PaginationControls = ({ 
     currentPage, 
     totalPages, 
@@ -933,1154 +933,1824 @@ const fetchDataFromDB = async () => {
   };
 
   // ============ FUNCIONES DE EXPORTACIÓN ============
+  
+  // Exportar datos semanales a Excel con el diseño específico
+  const exportWeeklyToExcel = async () => {
+    try {
+      /* ===============================
+        MAPAS
+      =============================== */
+      let observacionesMap = {};
+      let empleadosMap = {};
 
-  // Función para exportar a CSV todas las asistencias
-  const exportAllToCSV = () => {
-  try {
-    // Encabezado informativo
-    const headerInfo = [
-      ['REPORTE DE ASISTENCIAS - SISTEMA DE CONTROL'],
-      [`Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}`],
-      [`Zona horaria: Jalisco (UTC-6)`],
-      [`Total de registros: ${filteredData.length}`],
-      [`Empleados únicos: ${new Set(filteredData.map(r => r.numero_empleado)).size}`],
-      searchTerm ? [`Filtro de búsqueda: "${searchTerm}"`] : [''],
-      dateFilter ? [`Filtro de fecha: ${dateFilter}`] : ['Periodo: Todas las fechas'],
-      [''] // Línea en blanco
-    ];
+      try {
+        const obsRes = await fetch('/api/observaciones');
+        if (obsRes.ok) {
+          const data = await obsRes.json();
+          data.forEach(obs => {
+            observacionesMap[obs.employeeId] = obs.text || '';
+          });
+        }
+      } catch {}
 
-    // Encabezados de columnas
-    const headers = [
-      'ID REGISTRO',
-      'N° EMPLEADO', 
-      'NOMBRE COMPLETO', 
-      'ÁREA/DEPARTAMENTO', 
-      'SUB-DEPARTAMENTO', 
-      'FECHA REGISTRO', 
-      'HORA REGISTRO', 
-      'TIPO DE REGISTRO',
-      'ESTATUS'
-    ];
-    
-    // Preparar datos con formato
-    const csvData = filteredData.map((row, index) => {
-      const tipo = row.tipo_registro || row.type || 'entrada';
-      const fecha = row.fecha || row.date || '';
-      const hora = row.hora || row.time || '';
-      
-      return [
-        `REG-${index + 1}`,
-        row.numero_empleado || row.employeeId || 'N/A',
-        `"${row.nombre_empleado || row.employeeName || 'SIN NOMBRE'}"`,
-        `"${row.area_empleado || row.department || 'NO ESPECIFICADO'}"`,
-        `"${row.departamento || 'NO ESPECIFICADO'}"`,
-        fecha,
-        hora,
-        tipo.toUpperCase(),
-        tipo === 'entrada' ? 'ENTRADA REGISTRADA' : 'SALIDA REGISTRADA'
+      try {
+        const empRes = await fetch('/api/empleados');
+        if (empRes.ok) {
+          const data = await empRes.json();
+          data.forEach(emp => {
+            empleadosMap[emp.nombre_completo] = emp.numero_empleado;
+          });
+        }
+      } catch {}
+
+      /* ===============================
+        UNIR DATOS
+      =============================== */
+      const weeklyDataFinal = weeklyData.map(row => {
+        const num = empleadosMap[row.nombre];
+        const obs = num ? observacionesMap[num] : '';
+        return { ...row, numero_empleado: num || 'N/A', observacion: obs?.trim() || '' };
+      });
+
+      if (!weeklyDataFinal.length) {
+        alert('No hay datos para exportar');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      /* ===============================
+        FILAS
+      =============================== */
+      const headers = [
+        'Número Empleado','Nombre','Área','Departamento',
+        'Lunes','Martes','Miércoles','Jueves','Viernes',
+        'Faltas Totales','Observación'
       ];
-    });
 
-    // Pie de página
-    const footerInfo = [
-      [''],
-      ['RESUMEN ESTADÍSTICO:'],
-      [`- Total registros de entrada: ${filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length}`],
-      [`- Total registros de salida: ${filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length}`],
-      [`- Proporción entrada/salida: ${filteredData.length > 0 ? 
-        ((filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length / filteredData.length) * 100).toFixed(1) + '%' : '0%'}`],
-      [''],
-      ['NOTAS:'],
-      ['1. Este reporte fue generado automáticamente por el Sistema de Control de Asistencias'],
-      ['2. Los datos están en formato 24 horas (zona horaria Jalisco)'],
-      ['3. Para consultas, contacte al departamento de Recursos Humanos']
-    ];
+      const formatDia = (v, f, i) => {
+        if (f || i) return '';
+        return v === 'X' ? 'Asistencia' : 'Falta';
+      };
 
-    // Construir contenido completo
-    const csvContent = [
-      ...headerInfo.map(row => row.join(',')),
-      headers.join(','),
-      ...csvData.map(row => row.join(',')),
-      ...footerInfo.map(row => row.join(','))
-    ].join('\n');
+      const getFaltasTotales = r =>
+        ['lunes','martes','miercoles','jueves','viernes']
+          .filter(d => r[d] !== 'X' && !r.esFuturo?.[d] && !r.esInactivo?.[d]).length;
 
-    const bom = '\uFEFF';
-    const blob = new Blob([bom + csvContent], { 
-      type: 'text/csv;charset=utf-8;' 
-    });
-    
-    // Nombre del archivo con fecha y hora
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}_${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}`;
-    let filename = `Reporte_Asistencias_Completo_${timestamp}`;
-    
-    if (dateFilter) {
-      filename = `Reporte_Asistencias_${dateFilter.replace(/\//g,'-')}_${timestamp}`;
-    } else if (searchTerm) {
-      const termShort = searchTerm.substring(0, 15).replace(/\s+/g, '_');
-      filename = `Reporte_Asistencias_Busqueda_${termShort}_${timestamp}`;
+      const rows = weeklyDataFinal.map(r => ([
+        r.numero_empleado,
+        r.nombre,
+        r.area,
+        r.departamento || '',
+        formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes),
+        formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes),
+        formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles),
+        formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves),
+        formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes),
+        getFaltasTotales(r),
+        r.observacion
+      ]));
+
+      const sheetData = [
+        ['REPORTE SEMANAL DE ASISTENCIAS'],
+        [`Semana ${selectedWeek}: ${weekRange.start} al ${weekRange.end}`],
+        [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`],
+        [],
+        [`Total empleados: ${weeklyDataFinal.length}`],
+        [`Faltas totales: ${weekStats.totalFaltas}`],
+        [`Porcentaje de asistencia: ${weekStats.porcentajeAsistencia}%`],
+        [],
+        headers,
+        ...rows
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      /* ===============================
+        ESTILOS MINIMALISTAS GRISES
+      =============================== */
+      const titleStyle = {
+        font: { bold: true, sz: 16, color: { rgb: 'FF2F2F2F' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      const subtitleStyle = {
+        font: { sz: 12, color: { rgb: 'FF4A4A4A' } }
+      };
+
+      const statsStyle = {
+        font: { sz: 11, color: { rgb: 'FF4A4A4A' } }
+      };
+
+      const headerStyle = {
+        font: { bold: true, sz: 11, color: { rgb: 'FF2F2F2F' } },
+        fill: { patternType: 'solid', fgColor: { rgb: 'FFD6D6D6' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: 'FFD0D0D0' } },
+          bottom: { style: 'thin', color: { rgb: 'FFD0D0D0' } },
+          left: { style: 'thin', color: { rgb: 'FFD0D0D0' } },
+          right: { style: 'thin', color: { rgb: 'FFD0D0D0' } }
+        }
+      };
+
+      const baseCell = {
+        font: { sz: 11, color: { rgb: 'FF3A3A3A' } },
+        fill: { patternType: 'solid', fgColor: { rgb: 'FFF5F5F5' } },
+        border: {
+          top: { style: 'thin', color: { rgb: 'FFE0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'FFE0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'FFE0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'FFE0E0E0' } }
+        }
+      };
+
+      /* ===============================
+        APLICAR ESTILOS
+      =============================== */
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      for (let R = 0; R <= range.e.r; R++) {
+        for (let C = 0; C <= range.e.c; C++) {
+          const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (!cell) continue;
+
+          if (R === 0) cell.s = titleStyle;
+          else if (R === 1 || R === 2) cell.s = subtitleStyle;
+          else if (R >= 4 && R <= 6) cell.s = statsStyle;
+          else if (R === 8) cell.s = headerStyle;
+          else if (R > 8) {
+            cell.s = {
+              ...baseCell,
+              alignment: {
+                horizontal: C === 1 || C === headers.length - 1 ? 'left' : 'center',
+                vertical: 'center',
+                wrapText: C === headers.length - 1
+              }
+            };
+          }
+        }
+      }
+
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
+      ];
+
+      ws['!cols'] = [
+        { wch: 16 }, { wch: 30 }, { wch: 15 }, { wch: 18 },
+        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 },
+        { wch: 12 }, { wch: 15 }, { wch: 40 }
+      ];
+
+      ws['!freeze'] = { ySplit: 9 };
+
+      XLSX.utils.book_append_sheet(wb, ws, `Semana ${selectedWeek}`);
+
+      XLSX.writeFile(
+        wb,
+        `REPORTE_SEMANAL_ASISTENCIAS_SEMANA_${selectedWeek}_${weekRange.start.replace(/\//g, '-')}.xlsx`
+      );
+
+    } catch (e) {
+      console.error('❌ Error Excel:', e);
+      alert('Error al exportar el Excel');
     }
-    
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${filename}.csv`;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Mostrar notificación de éxito
-    showNotification(`✅ CSV exportado exitosamente (${filteredData.length} registros)`, 'success');
-    
-  } catch (error) {
-    console.error('Error exportando CSV:', error);
-    showNotification('❌ Error al exportar el archivo CSV', 'error');
-  }
-};
+  };
 
 
-  // Función para exportar a PDF todas las asistencias
-  const exportAllToPDF = async () => {
+
+  // Exportar datos semanales a PDF con observaciones
+  const exportWeeklyToPDF = async () => {
   try {
     const { jsPDF } = await import('jspdf');
-    const html2canvas = (await import('html2canvas')).default;
-    
-    // Crear elemento HTML para el PDF con diseño profesional
-    const pdfContainer = document.createElement('div');
-    pdfContainer.style.cssText = `
-      position: absolute;
-      left: -9999px;
-      top: 0;
-      width: 800px;
-      background: white;
-      padding: 30px;
-      font-family: 'Arial', 'Helvetica', sans-serif;
-    `;
-    
-    // Generar contenido HTML con diseño
-    pdfContainer.innerHTML = `
-      <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #2c3e50; padding-bottom: 20px;">
-        <h1 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 28px;">
-          📊 REPORTE DE ASISTENCIAS
-        </h1>
-        <h2 style="color: #3498db; margin: 0 0 15px 0; font-size: 18px; font-weight: normal;">
-          Sistema de Control de Asistencia
-        </h2>
-        <div style="display: flex; justify-content: center; gap: 30px; font-size: 12px; color: #7f8c8d;">
-          <div style="text-align: center;">
-            <div style="font-weight: bold; color: #2c3e50;">Fecha de generación</div>
-            <div>${new Date().toLocaleDateString('es-MX', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })}</div>
-            <div>${new Date().toLocaleTimeString('es-MX')}</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="font-weight: bold; color: #2c3e50;">Zona horaria</div>
-            <div>Jalisco (UTC-6)</div>
-            <div>Hora actual: ${getCurrentJaliscoTime()}</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="font-weight: bold; color: #2c3e50;">Total registros</div>
-            <div style="font-size: 24px; color: #27ae60; font-weight: bold;">${filteredData.length}</div>
-          </div>
-        </div>
-      </div>
-      
-      ${searchTerm || dateFilter ? `
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 25px; border-left: 4px solid #3498db;">
-          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 5px;">Filtros aplicados:</div>
-          ${searchTerm ? `<div>🔍 Búsqueda: <strong>"${searchTerm}"</strong></div>` : ''}
-          ${dateFilter ? `<div>📅 Fecha: <strong>${dateFilter}</strong></div>` : ''}
-        </div>
-      ` : ''}
-      
-      <div style="margin-bottom: 20px;">
-        <h3 style="color: #2c3e50; font-size: 16px; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #ecf0f1;">
-          📋 Resumen estadístico
-        </h3>
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px;">
-          <div style="text-align: center; padding: 15px; background: linear-gradient(135deg, #d4edda, #c3e6cb); border-radius: 8px; border: 1px solid #c3e6cb;">
-            <div style="font-size: 12px; color: #155724; margin-bottom: 5px;">Registros de entrada</div>
-            <div style="font-size: 24px; font-weight: bold; color: #155724;">
-              ${filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length}
-            </div>
-          </div>
-          <div style="text-align: center; padding: 15px; background: linear-gradient(135deg, #d1ecf1, #bee5eb); border-radius: 8px; border: 1px solid #bee5eb;">
-            <div style="font-size: 12px; color: #0c5460; margin-bottom: 5px;">Registros de salida</div>
-            <div style="font-size: 24px; font-weight: bold; color: #0c5460;">
-              ${filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length}
-            </div>
-          </div>
-          <div style="text-align: center; padding: 15px; background: linear-gradient(135deg, #fff3cd, #ffeaa7); border-radius: 8px; border: 1px solid #ffeaa7;">
-            <div style="font-size: 12px; color: #856404; margin-bottom: 5px;">Empleados únicos</div>
-            <div style="font-size: 24px; font-weight: bold; color: #856404;">
-              ${new Set(filteredData.map(r => r.numero_empleado)).size}
-            </div>
-          </div>
-          <div style="text-align: center; padding: 15px; background: linear-gradient(135deg, #f8d7da, #f5c6cb); border-radius: 8px; border: 1px solid #f5c6cb;">
-            <div style="font-size: 12px; color: #721c24; margin-bottom: 5px;">Porcentaje entradas</div>
-            <div style="font-size: 24px; font-weight: bold; color: #721c24;">
-              ${filteredData.length > 0 ? 
-                ((filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length / filteredData.length) * 100).toFixed(1) + '%' : 
-                '0%'}
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <div style="margin-bottom: 30px;">
-        <h3 style="color: #2c3e50; font-size: 16px; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #ecf0f1;">
-          📊 Detalle de registros
-        </h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-          <thead>
-            <tr style="background: linear-gradient(135deg, #2c3e50, #34495e); color: white;">
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">N° EMPLEADO</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">NOMBRE</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">ÁREA</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">DEPTO.</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">FECHA</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">HORA</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">TIPO</th>
-              <th style="border: 1px solid #34495e; padding: 12px 8px; text-align: left; font-weight: 600;">ESTADO</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filteredData.slice(0, 100).map((row, index) => {
-              const tipo = row.tipo_registro || row.type || 'entrada';
-              const isEntrada = tipo === 'entrada';
-              
-              return `
-                <tr style="${index % 2 === 0 ? 'background-color: #f8f9fa;' : 'background-color: #ffffff;'}">
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px; font-weight: 600; color: #2c3e50;">
-                    ${row.numero_empleado || row.employeeId || 'N/A'}
-                  </td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">${row.nombre_empleado || row.employeeName || ''}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">${row.area_empleado || row.department || ''}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">${row.departamento || '-'}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px; font-weight: 600;">${row.fecha || row.date || ''}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px; font-family: 'Courier New', monospace;">${row.hora || row.time || ''}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">
-                    <span style="
-                      display: inline-block;
-                      padding: 3px 10px;
-                      border-radius: 20px;
-                      font-size: 10px;
-                      font-weight: 600;
-                      ${isEntrada ? 
-                        'background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 
-                        'background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb;'
-                      }
-                    ">
-                      ${tipo.toUpperCase()}
-                    </span>
-                  </td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">
-                    <span style="
-                      display: inline-block;
-                      padding: 3px 8px;
-                      border-radius: 4px;
-                      font-size: 10px;
-                      font-weight: 600;
-                      ${isEntrada ? 
-                        'background-color: #28a745; color: white;' : 
-                        'background-color: #17a2b8; color: white;'
-                      }
-                    ">
-                      ${isEntrada ? 'ENTRADA' : 'SALIDA'}
-                    </span>
-                  </td>
-                </tr>
-              `;
-            }).join('')}
-            
-            ${filteredData.length > 100 ? `
-              <tr style="background-color: #e9ecef;">
-                <td colspan="8" style="border: 1px solid #dee2e6; padding: 15px; text-align: center; font-weight: 600; color: #6c757d;">
-                  ... y ${filteredData.length - 100} registros más (total: ${filteredData.length})
-                </td>
-              </tr>
-            ` : ''}
-          </tbody>
-        </table>
-      </div>
-      
-      <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ecf0f1; font-size: 10px; color: #7f8c8d;">
-        <div style="display: flex; justify-content: space-between;">
-          <div>
-            <div style="font-weight: bold; margin-bottom: 5px;">INFORMACIÓN DEL SISTEMA</div>
-            <div>Sistema de Control de Asistencias v2.0</div>
-            <div>Base de datos: MongoDB</div>
-            <div>Última sincronización: ${lastUpdated ? formatDateTime(lastUpdated) : 'N/A'}</div>
-          </div>
-          <div style="text-align: right;">
-            <div style="font-weight: bold; margin-bottom: 5px;">PÁGINA 1 DE 1</div>
-            <div>Generado automáticamente</div>
-            <div>${new Date().toLocaleDateString('es-MX')}</div>
-            <div>© ${new Date().getFullYear()} - Sistema de Control</div>
-          </div>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(pdfContainer);
-    
-    // Configurar html2canvas
-    const canvas = await html2canvas(pdfContainer, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff'
-    });
-    
-    // Crear PDF
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
-    
-    const imgWidth = 210;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    
-    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
-    
-    // Nombre del archivo
-    const timestamp = new Date().toISOString().split('T')[0];
-    let filename = `Reporte_Asistencias_${timestamp}`;
-    if (dateFilter) {
-      filename = `Reporte_Asistencias_${dateFilter.replace(/\//g, '-')}`;
-    } else if (searchTerm) {
-      const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
-      filename = `Reporte_Asistencias_${termShort}`;
-    }
-    
-    pdf.save(`${filename}.pdf`);
-    document.body.removeChild(pdfContainer);
-    
-    showNotification(`✅ PDF exportado exitosamente (${filteredData.length} registros)`, 'success');
-    
-  } catch (error) {
-    console.error('Error exporting PDF:', error);
-    showNotification('❌ Error al exportar el archivo PDF', 'error');
-  }
-};
 
-  // Exportar empleados a CSV (MODIFICADO)
-  const exportEmployeesToCSV = () => {
-  try {
-    const headerInfo = [
-      ['REPORTE DE EMPLEADOS - SISTEMA DE CONTROL'],
-      [`Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}`],
-      [`Total empleados: ${employees.length}`],
-      [`Empleados activos: ${employees.filter(e => e.activo).length}`],
-      [`Empleados inactivos: ${employees.filter(e => !e.activo).length}`],
-      ['']
-    ];
+    /* ===============================
+      1️⃣ MAPAS DE OBSERVACIONES Y EMPLEADOS
+    =============================== */
+    let observacionesMap = {};
+    try {
+      const obsRes = await fetch('/api/observaciones');
+      if (obsRes.ok) {
+        const data = await obsRes.json();
+        data.forEach(obs => {
+          if (
+            !observacionesMap[obs.employeeId] ||
+            new Date(obs.date) > new Date(observacionesMap[obs.employeeId].date)
+          ) {
+            observacionesMap[obs.employeeId] = obs;
+          }
+        });
+      }
+    } catch {}
 
-    const headers = [
-      'N° EMPLEADO',
-      'NOMBRE COMPLETO', 
-      'ÁREA/DPTO PRINCIPAL', 
-      'SUB-DEPARTAMENTO', 
-      'ESTADO',
-      'FECHA DE ALTA',
-      'ÚLTIMA ACTUALIZACIÓN'
-    ];
-    
-    const csvData = employees.map(emp => {
-      return [
-        emp.numero_empleado,
-        `"${emp.nombre_completo}"`,
-        `"${emp.area}"`,
-        `"${emp.departamento || 'NO ESPECIFICADO'}"`,
-        emp.activo ? 'ACTIVO' : 'INACTIVO',
-        'S/D', // Fecha de alta (si la tuvieras en tus datos)
-        new Date().toLocaleDateString('es-MX')
+    let empleadosMap = {};
+    try {
+      const empRes = await fetch('/api/empleados');
+      if (empRes.ok) {
+        const data = await empRes.json();
+        data.forEach(emp => {
+          empleadosMap[emp.nombre_completo] = emp.numero_empleado;
+        });
+      }
+    } catch {}
+
+    /* ===============================
+      2️⃣ UNIR DATOS
+    =============================== */
+    const weeklyDataFinal = weeklyData.map(row => {
+      const num = empleadosMap[row.nombre];
+      const obs = num ? observacionesMap[num]?.text : null;
+
+      return {
+        ...row,
+        numero_empleado: num || 'N/A',
+        observacion: obs && obs.trim() ? obs : '—'
+      };
+    });
+
+    /* ===============================
+      3️⃣ PDF BASE
+    =============================== */
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const MAX_ROWS = 13;
+    const totalPages = Math.ceil(weeklyDataFinal.length / MAX_ROWS);
+
+    /* ===============================
+      4️⃣ RENDER DÍA (MINIMAL)
+    =============================== */
+    const renderDay = (valor, esFuturo, esInactivo) => {
+      if (esFuturo) return { t: 'S/R', c: [156, 163, 175] };
+      if (esInactivo) return { t: '—', c: [107, 114, 128] };
+      if (valor === 'X') return { t: 'Asistencia', c: [16, 185, 129] };
+      return { t: 'Falta', c: [239, 68, 68] };
+    };
+
+    /* ===============================
+      5️⃣ HEADER MINIMALISTA
+    =============================== */
+    const drawHeader = (page) => {
+      // Línea superior
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, 26, pageWidth - 10, 26);
+
+      // Título
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.setTextColor(17, 24, 39);
+      pdf.text('Reporte Semanal de Asistencias', 15, 15);
+
+      // Subtítulo
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        `Semana ${selectedWeek} · ${weekRange.start} al ${weekRange.end}`,
+        15,
+        22
+      );
+
+      // Página
+      pdf.text(
+        `Página ${page} de ${totalPages}`,
+        pageWidth - 15,
+        22,
+        { align: 'right' }
+      );
+
+      /* ===== Métricas ===== */
+      const y = 30;
+      const cardW = 42;
+      const gap = 6;
+
+      const metrics = [
+        { t: 'Empleados', v: weeklyDataFinal.length },
+        { t: 'Faltas', v: weekStats.totalFaltas },
+        { t: '% Asistencia', v: `${weekStats.porcentajeAsistencia}%` }
       ];
-    });
 
-    const footerInfo = [
-      [''],
-      ['DISTRIBUCIÓN POR ÁREAS:'],
-      ...Object.entries(
-        employees.reduce((acc, emp) => {
-          acc[emp.area] = (acc[emp.area] || 0) + 1;
-          return acc;
-        }, {})
-      ).map(([area, count]) => [`- ${area}: ${count} empleados (${((count/employees.length)*100).toFixed(1)}%)`])
-    ];
+      metrics.forEach((m, i) => {
+        const x = 15 + i * (cardW + gap);
+        pdf.setDrawColor(229, 231, 235);
+        pdf.roundedRect(x, y, cardW, 18, 3, 3);
 
-    const csvContent = [
-      ...headerInfo.map(row => row.join(',')),
-      headers.join(','),
-      ...csvData.map(row => row.join(',')),
-      ...footerInfo.map(row => row.join(','))
-    ].join('\n');
+        pdf.setFontSize(7);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
 
-    const bom = '\uFEFF';
-    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-    
-    const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `Reporte_Empleados_${timestamp}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    showNotification(`✅ Empleados exportados (${employees.length} registros)`, 'success');
-  } catch (error) {
-    console.error('Error exportando empleados:', error);
-    showNotification('❌ Error al exportar empleados', 'error');
+        pdf.setFontSize(14);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+      });
+    };
+
+    /* ===============================
+      6️⃣ TABLA
+    =============================== */
+    const colW = [50, 35, 40, 15, 15, 15, 15, 15, 20, 50];
+
+    const drawTableHeader = (y) => {
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(55, 65, 81);
+
+      const headers = ['Nombre', 'Área', 'Departamento', 'L', 'M', 'X', 'J', 'V', 'Faltas', 'Observacion'];
+      let x = 12;
+      headers.forEach((h, i) => {
+        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+        x += colW[i];
+      });
+    };
+
+    const drawRow = (row, y) => {
+      let x = 12;
+
+      pdf.setFontSize(7);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(17, 24, 39);
+      pdf.text(row.nombre || '—', x + 2, y + 6);
+      x += colW[0];
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(row.area || '—', x + 8, y + 6);
+      x += colW[1];
+
+      pdf.text(row.departamento || '—', x + 2, y + 6);
+      x += colW[2];
+
+      const dias = [
+        { v: row.lunes, f: row.esFuturo?.lunes, i: row.esInactivo?.lunes },
+        { v: row.martes, f: row.esFuturo?.martes, i: row.esInactivo?.martes },
+        { v: row.miercoles, f: row.esFuturo?.miercoles, i: row.esInactivo?.miercoles },
+        { v: row.jueves, f: row.esFuturo?.jueves, i: row.esInactivo?.jueves },
+        { v: row.viernes, f: row.esFuturo?.viernes, i: row.esInactivo?.viernes }
+      ];
+
+      dias.forEach(d => {
+        const r = renderDay(d.v, d.f, d.i);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(...r.c);
+        pdf.text(r.t, x + colW[3] / 2, y + 6, { align: 'center' });
+        x += colW[3];
+      });
+
+      pdf.setTextColor(17, 24, 39);
+      pdf.text(String(row.faltas || 0), x + colW[8] / 2, y + 6, { align: 'center' });
+      x += colW[8];
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(75, 85, 99);
+      pdf.text(row.observacion || '—', x + 6, y + 6);
+
+      // Línea separadora
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, y + 9, pageWidth - 10, y + 9);
+    };
+
+    /* ===============================
+      7️⃣ PAGINADO
+    =============================== */
+    let page = 1;
+    for (let i = 0; i < weeklyDataFinal.length; i += MAX_ROWS) {
+      if (page > 1) pdf.addPage();
+      drawHeader(page);
+
+      let y = 55;
+      drawTableHeader(y);
+      y += 9;
+
+      weeklyDataFinal.slice(i, i + MAX_ROWS).forEach(row => {
+        drawRow(row, y);
+        y += 10;
+      });
+
+      page++;
+    }
+
+    /* ===============================
+      8️⃣ FOOTER
+    =============================== */
+    pdf.setPage(totalPages);
+    pdf.setFontSize(7);
+    pdf.setTextColor(107, 114, 128);
+    pdf.text(
+      'S/R = Sin registro   — = Inactivo',
+      pageWidth / 2,
+      pageHeight - 12,
+      { align: 'center' }
+    );
+
+    pdf.save(`reporte_semana_${selectedWeek}.pdf`);
+  } catch (e) {
+    console.error(e);
+    alert('Error al generar PDF');
   }
 };
 
-  // Función para exportar empleados a PDF (MODIFICADO)
+// Exportar registros de asistencia con diseño similar
+const exportAllToExcel = () => {
+  try {
+    const filteredData = attendanceData.filter(r => {
+      const matchesSearch =
+        r.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.employeeName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.departamento?.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesDate = !dateFilter || r.fecha === dateFilter || r.date === dateFilter;
+      return matchesSearch && matchesDate;
+    });
+
+    if (filteredData.length === 0) {
+      alert('No hay datos de asistencia para exportar');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    /* ===============================
+       TÍTULO Y ENCABEZADOS
+    =============================== */
+    
+    // Título principal
+    const titleRow1 = ['REPORTE DE REGISTROS DE ASISTENCIA'];
+    const titleRow2 = [dateFilter ? `Fecha: ${dateFilter}` : 'Rango: Todas las fechas'];
+    const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
+    const titleRow4 = []; // Fila vacía
+    
+    // Estadísticas
+    const entradas = filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length;
+    const salidas = filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length;
+    const empleadosUnicos = [...new Set(filteredData.map(r => r.numero_empleado || r.employeeId))].length;
+    
+    const statsRow1 = [`Total registros: ${filteredData.length}`];
+    const statsRow2 = [`Registros de entrada: ${entradas}`];
+    const statsRow3 = [`Registros de salida: ${salidas}`];
+    const statsRow4 = [`Empleados únicos: ${empleadosUnicos}`];
+    if (searchTerm) {
+      statsRow4.push(`Búsqueda: "${searchTerm}"`);
+    }
+    const statsRow5 = []; // Fila vacía
+    
+    // Encabezados de tabla
+    const headers = [
+      'Número Empleado',
+      'Nombre',
+      'Área',
+      'Departamento',
+      'Fecha',
+      'Hora',
+      'Tipo de Registro'
+    ];
+
+    /* ===============================
+       DATOS DE LA TABLA
+    =============================== */
+    const rows = filteredData.map(r => ([
+      r.numero_empleado || r.employeeId || 'N/A',
+      r.nombre_empleado || r.employeeName || 'SIN NOMBRE',
+      r.area_empleado || r.department || '',
+      r.departamento || '',
+      r.fecha || r.date || '',
+      r.hora || r.time || '',
+      (r.tipo_registro || r.type || 'entrada').toUpperCase()
+    ]));
+
+    /* ===============================
+       CONSTRUIR LA HOJA DE CÁLCULO
+    =============================== */
+    const sheetData = [
+      titleRow1,
+      titleRow2,
+      titleRow3,
+      titleRow4,
+      statsRow1,
+      statsRow2,
+      statsRow3,
+      statsRow4,
+      statsRow5,
+      headers,
+      ...rows
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    /* ===============================
+       APLICAR ESTILOS Y FORMATOS
+    =============================== */
+
+    // Definir estilos
+    const titleStyle = {
+      font: { bold: true, sz: 16, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const subtitleStyle = {
+      font: { bold: true, sz: 12, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const statsStyle = {
+      font: { bold: true, sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const headerStyle = {
+      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '2E5A8D' } }, // Azul oscuro
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    };
+
+    const cellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const nombreCellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    // Aplicar estilos a las celdas
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    for (let R = 0; R <= range.e.r; R++) {
+      for (let C = 0; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (!cell) continue;
+
+        // Filas de título (1-3)
+        if (R === 0 || R === 1) {
+          cell.s = titleStyle;
+          // Combinar celdas para el título
+          if (R === 0) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+          }
+          if (R === 1) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+          }
+        }
+
+        // Fila de generado (2)
+        if (R === 2) {
+          cell.s = subtitleStyle;
+          if (!ws['!merges']) ws['!merges'] = [];
+          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+        }
+
+        // Filas de estadísticas (4-7)
+        if (R >= 4 && R <= 7) {
+          cell.s = statsStyle;
+        }
+
+        // Encabezados de tabla (fila 10, considerando filas vacías)
+        if (R === 10) {
+          cell.s = headerStyle;
+        }
+
+        // Filas de datos (desde la fila 11 en adelante)
+        if (R > 10) {
+          // Columna de Nombre (columna 1)
+          if (C === 1) {
+            cell.s = nombreCellStyle;
+          }
+          // Otras columnas
+          else {
+            cell.s = cellStyle;
+          }
+        }
+      }
+    }
+
+    /* ===============================
+       AJUSTAR ANCHO DE COLUMNAS
+    =============================== */
+    ws['!cols'] = [
+      { wch: 16 },  // Número Empleado
+      { wch: 30 },  // Nombre
+      { wch: 15 },  // Área
+      { wch: 18 },  // Departamento
+      { wch: 12 },  // Fecha
+      { wch: 10 },  // Hora
+      { wch: 16 }   // Tipo de Registro
+    ];
+
+    /* ===============================
+       CONGELAR PANELES
+    =============================== */
+    ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Registros Asistencia');
+
+    /* ===============================
+       GUARDAR ARCHIVO
+    =============================== */
+    let fileName = 'REPORTE_REGISTROS_ASISTENCIA';
+    if (dateFilter) fileName += `_${dateFilter.replace(/\//g, '-')}`;
+    if (searchTerm) {
+      const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
+      fileName += `_BUSQUEDA_${termShort}`;
+    }
+    fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
+    
+    XLSX.writeFile(wb, fileName);
+
+    console.log('✅ Registros de asistencia exportados con diseño de imagen');
+  } catch (e) {
+    console.error('❌ Error al exportar registros:', e);
+    alert('Error al exportar los registros. Por favor, intente nuevamente.');
+  }
+};
+
+// Exportar lista de empleados con diseño similar
+const exportEmployeesToExcel = () => {
+  try {
+    if (employees.length === 0) {
+      alert('No hay empleados para exportar');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    /* ===============================
+       TÍTULO Y ENCABEZADOS
+    =============================== */
+    
+    // Título principal
+    const titleRow1 = ['REPORTE DE EMPLEADOS REGISTRADOS'];
+    const titleRow2 = ['Sistema de Control de Asistencias'];
+    const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
+    const titleRow4 = []; // Fila vacía
+    
+    // Estadísticas
+    const activos = employees.filter(e => e.activo).length;
+    const inactivos = employees.filter(e => !e.activo).length;
+    const porcentajeActivos = employees.length > 0 ? ((activos / employees.length) * 100).toFixed(1) : 0;
+    
+    const statsRow1 = [`Total empleados: ${employees.length}`];
+    const statsRow2 = [`Empleados activos: ${activos}`];
+    const statsRow3 = [`Empleados inactivos: ${inactivos}`];
+    const statsRow4 = [`Porcentaje activos: ${porcentajeActivos}%`];
+    const statsRow5 = []; // Fila vacía
+    
+    // Encabezados de tabla
+    const headers = [
+      'Número Empleado',
+      'Nombre Completo',
+      'Área',
+      'Departamento',
+      'Estado'
+    ];
+
+    /* ===============================
+       DATOS DE LA TABLA
+    =============================== */
+    const rows = employees.map(e => ([
+      e.numero_empleado,
+      e.nombre_completo,
+      e.area,
+      e.departamento || '—',
+      e.activo ? 'ACTIVO' : 'INACTIVO'
+    ]));
+
+    /* ===============================
+       CONSTRUIR LA HOJA DE CÁLCULO
+    =============================== */
+    const sheetData = [
+      titleRow1,
+      titleRow2,
+      titleRow3,
+      titleRow4,
+      statsRow1,
+      statsRow2,
+      statsRow3,
+      statsRow4,
+      statsRow5,
+      headers,
+      ...rows
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    /* ===============================
+       APLICAR ESTILOS Y FORMATOS
+    =============================== */
+
+    // Definir estilos
+    const titleStyle = {
+      font: { bold: true, sz: 16, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const subtitleStyle = {
+      font: { bold: true, sz: 12, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const statsStyle = {
+      font: { bold: true, sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const headerStyle = {
+      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '2E5A8D' } }, // Azul oscuro
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    };
+
+    const cellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const nombreCellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const estadoCellStyle = {
+      font: { bold: true, sz: 11 },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    // Aplicar estilos a las celdas
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    for (let R = 0; R <= range.e.r; R++) {
+      for (let C = 0; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (!cell) continue;
+
+        // Filas de título (1-3)
+        if (R === 0 || R === 1) {
+          cell.s = titleStyle;
+          // Combinar celdas para el título
+          if (R === 0) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+          }
+          if (R === 1) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+          }
+        }
+
+        // Fila de generado (2)
+        if (R === 2) {
+          cell.s = subtitleStyle;
+          if (!ws['!merges']) ws['!merges'] = [];
+          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+        }
+
+        // Filas de estadísticas (4-7)
+        if (R >= 4 && R <= 7) {
+          cell.s = statsStyle;
+        }
+
+        // Encabezados de tabla (fila 10, considerando filas vacías)
+        if (R === 10) {
+          cell.s = headerStyle;
+        }
+
+        // Filas de datos (desde la fila 11 en adelante)
+        if (R > 10) {
+          // Columna de Nombre (columna 1)
+          if (C === 1) {
+            cell.s = nombreCellStyle;
+          }
+          // Columna de Estado (última columna)
+          else if (C === headers.length - 1) {
+            // Establecer color según estado
+            const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
+            if (cellValue === 'ACTIVO') {
+              cell.s = { 
+                ...estadoCellStyle,
+                font: { ...estadoCellStyle.font, color: { rgb: '228B22' } }, // Verde
+                fill: { fgColor: { rgb: 'F0FFF0' } } // Verde claro
+              };
+            } else {
+              cell.s = { 
+                ...estadoCellStyle,
+                font: { ...estadoCellStyle.font, color: { rgb: 'DC143C' } }, // Rojo
+                fill: { fgColor: { rgb: 'FFF0F0' } } // Rojo claro
+              };
+            }
+          }
+          // Otras columnas
+          else {
+            cell.s = cellStyle;
+          }
+        }
+      }
+    }
+
+    /* ===============================
+       AJUSTAR ANCHO DE COLUMNAS
+    =============================== */
+    ws['!cols'] = [
+      { wch: 16 },  // Número Empleado
+      { wch: 35 },  // Nombre Completo
+      { wch: 15 },  // Área
+      { wch: 18 },  // Departamento
+      { wch: 14 }   // Estado
+    ];
+
+    /* ===============================
+       CONGELAR PANELES
+    =============================== */
+    ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Empleados');
+
+    /* ===============================
+       GUARDAR ARCHIVO
+    =============================== */
+    const fileName = `REPORTE_EMPLEADOS_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+
+    console.log('✅ Lista de empleados exportada con diseño de imagen');
+  } catch (e) {
+    console.error('❌ Error al exportar empleados:', e);
+    alert('Error al exportar la lista de empleados. Por favor, intente nuevamente.');
+  }
+};
+
   const exportEmployeesToPDF = async () => {
   try {
     const { jsPDF } = await import('jspdf');
-    const html2canvas = (await import('html2canvas')).default;
-    
-    const pdfContainer = document.createElement('div');
-    pdfContainer.style.cssText = `
-      position: absolute;
-      left: -9999px;
-      top: 0;
-      width: 800px;
-      background: white;
-      padding: 30px;
-      font-family: 'Arial', 'Helvetica', sans-serif;
-    `;
-    
-    // Calcular estadísticas
-    const activos = employees.filter(e => e.activo).length;
-    const inactivos = employees.filter(e => !e.activo).length;
-    
-    // Agrupar por área
-    const porArea = employees.reduce((acc, emp) => {
-      acc[emp.area] = (acc[emp.area] || 0) + 1;
-      return acc;
-    }, {});
-    
-    pdfContainer.innerHTML = `
-      <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #3498db; padding-bottom: 20px;">
-        <h1 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 28px;">
-          👥 DIRECTORIO DE EMPLEADOS
-        </h1>
-        <h2 style="color: #3498db; margin: 0 0 15px 0; font-size: 18px; font-weight: normal;">
-          Sistema de Control de Asistencia
-        </h2>
-        <div style="display: flex; justify-content: center; gap: 40px; font-size: 12px; color: #7f8c8d; margin-top: 20px;">
-          <div style="text-align: center;">
-            <div style="font-size: 32px; color: #27ae60; font-weight: bold;">${employees.length}</div>
-            <div style="font-weight: bold; color: #2c3e50;">Total empleados</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="font-size: 32px; color: #2ecc71; font-weight: bold;">${activos}</div>
-            <div style="font-weight: bold; color: #2c3e50;">Activos</div>
-            <div>${((activos/employees.length)*100).toFixed(1)}%</div>
-          </div>
-          <div style="text-align: center;">
-            <div style="font-size: 32px; color: #e74c3c; font-weight: bold;">${inactivos}</div>
-            <div style="font-weight: bold; color: #2c3e50;">Inactivos</div>
-            <div>${((inactivos/employees.length)*100).toFixed(1)}%</div>
-          </div>
-        </div>
-      </div>
-      
-      <div style="margin-bottom: 30px;">
-        <h3 style="color: #2c3e50; font-size: 16px; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #ecf0f1;">
-          📈 Distribución por áreas
-        </h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px;">
-          ${Object.entries(porArea).map(([area, count]) => `
-            <div style="
-              padding: 12px;
-              background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-              border-radius: 8px;
-              border-left: 4px solid #3498db;
-            ">
-              <div style="font-size: 14px; font-weight: 600; color: #2c3e50; margin-bottom: 5px;">
-                ${area}
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #2980b9;">
-                  ${count}
-                </div>
-                <div style="font-size: 12px; color: #7f8c8d;">
-                  ${((count/employees.length)*100).toFixed(1)}%
-                </div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-      
-      <div style="margin-bottom: 30px;">
-        <h3 style="color: #2c3e50; font-size: 16px; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #ecf0f1;">
-          📋 Lista completa de empleados
-        </h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-          <thead>
-            <tr style="background: linear-gradient(135deg, #3498db, #2980b9); color: white;">
-              <th style="border: 1px solid #2980b9; padding: 12px 8px; text-align: left; font-weight: 600;">N° EMPLEADO</th>
-              <th style="border: 1px solid #2980b9; padding: 12px 8px; text-align: left; font-weight: 600;">NOMBRE COMPLETO</th>
-              <th style="border: 1px solid #2980b9; padding: 12px 8px; text-align: left; font-weight: 600;">ÁREA</th>
-              <th style="border: 1px solid #2980b9; padding: 12px 8px; text-align: left; font-weight: 600;">DEPARTAMENTO</th>
-              <th style="border: 1px solid #2980b9; padding: 12px 8px; text-align: left; font-weight: 600;">ESTADO</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${employees.slice(0, 50).map((emp, index) => {
-              const isActivo = emp.activo;
-              return `
-                <tr style="${index % 2 === 0 ? 'background-color: #f8f9fa;' : 'background-color: #ffffff;'}">
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px; font-weight: 600; color: #2c3e50;">
-                    ${emp.numero_empleado}
-                  </td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">${emp.nombre_completo}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">${emp.area}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">${emp.departamento || '-'}</td>
-                  <td style="border: 1px solid #dee2e6; padding: 10px 8px;">
-                    <span style="
-                      display: inline-block;
-                      padding: 4px 12px;
-                      border-radius: 20px;
-                      font-size: 10px;
-                      font-weight: 600;
-                      ${isActivo ? 
-                        'background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 
-                        'background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'
-                      }
-                    ">
-                      ${isActivo ? 'ACTIVO' : 'INACTIVO'}
-                    </span>
-                  </td>
-                </tr>
-              `;
-            }).join('')}
-            
-            ${employees.length > 50 ? `
-              <tr style="background-color: #e9ecef;">
-                <td colspan="5" style="border: 1px solid #dee2e6; padding: 15px; text-align: center; font-weight: 600; color: #6c757d;">
-                  ... y ${employees.length - 50} empleados más (total: ${employees.length})
-                </td>
-              </tr>
-            ` : ''}
-          </tbody>
-        </table>
-      </div>
-      
-      <div style="margin-top: 40px; padding: 20px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 8px; font-size: 11px;">
-        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 10px;">ℹ️ Información del reporte</div>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-          <div>
-            <div style="font-weight: 600; color: #495057;">Fecha de generación:</div>
-            <div>${new Date().toLocaleDateString('es-MX', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })} ${new Date().toLocaleTimeString('es-MX')}</div>
-          </div>
-          <div>
-            <div style="font-weight: 600; color: #495057;">Área con más empleados:</div>
-            <div>${Object.entries(porArea).sort((a,b) => b[1]-a[1])[0]?.[0] || 'N/A'} 
-            (${Object.entries(porArea).sort((a,b) => b[1]-a[1])[0]?.[1] || 0} empleados)</div>
-          </div>
-        </div>
-      </div>
-      
-      <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ecf0f1; font-size: 10px; color: #7f8c8d; text-align: center;">
-        <div>Página 1 de 1 • Generado automáticamente por Sistema de Control de Asistencias</div>
-        <div style="margin-top: 5px;">© ${new Date().getFullYear()} - Departamento de Recursos Humanos</div>
-      </div>
-    `;
-    
-    document.body.appendChild(pdfContainer);
-    
-    const canvas = await html2canvas(pdfContainer, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff'
-    });
-    
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
-    
-    const imgWidth = 210;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    
-    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
-    
-    const timestamp = new Date().toISOString().split('T')[0];
-    pdf.save(`Directorio_Empleados_${timestamp}.pdf`);
-    
-    document.body.removeChild(pdfContainer);
-    
-    showNotification(`✅ Directorio de empleados exportado (${employees.length} registros)`, 'success');
-    
-  } catch (error) {
-    console.error('Error exportando empleados a PDF:', error);
-    showNotification('❌ Error al exportar empleados a PDF', 'error');
+
+    /* ===============================
+      3️⃣ PDF BASE
+    =============================== */
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const MAX_ROWS = 12;
+    const totalPages = Math.ceil(employees.length / MAX_ROWS);
+
+    /* ===============================
+      4️⃣ HEADER MINIMALISTA
+    =============================== */
+    const drawHeader = (page) => {
+      // Línea superior
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, 26, pageWidth - 10, 26);
+
+      // Título
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.setTextColor(17, 24, 39);
+      pdf.text('Reporte de Empleados', 15, 15);
+
+      // Subtítulo
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        `Total empleados: ${employees.length} · Activos: ${employees.filter(e => e.activo).length}`,
+        15,
+        22
+      );
+
+      // Página
+      pdf.text(
+        `Página ${page} de ${totalPages}`,
+        pageWidth - 15,
+        22,
+        { align: 'right' }
+      );
+
+      /* ===== Métricas ===== */
+      const y = 30;
+      const cardW = 45;
+      const gap = 6;
+
+      const activos = employees.filter(e => e.activo).length;
+      const inactivos = employees.filter(e => !e.activo).length;
+
+      const metrics = [
+        { t: 'Total', v: employees.length },
+        { t: 'Activos', v: activos },
+        { t: 'Inactivos', v: inactivos },
+        { t: '% Activos', v: `${((activos / employees.length) * 100).toFixed(1)}%` }
+      ];
+
+      metrics.forEach((m, i) => {
+        const x = 15 + i * (cardW + gap);
+        pdf.setDrawColor(229, 231, 235);
+        pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+        pdf.setFontSize(7);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+        pdf.setFontSize(14);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+      });
+    };
+
+    /* ===============================
+      5️⃣ TABLA
+    =============================== */
+    const colW = [20, 60, 40, 45, 20, 30];
+
+    const drawTableHeader = (y) => {
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(55, 65, 81);
+
+      const headers = ['N°', 'Nombre Completo', 'Área', 'Departamento', 'Estado', 'Última Actualización'];
+      let x = 12;
+      headers.forEach((h, i) => {
+        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+        x += colW[i];
+      });
+    };
+
+    const drawRow = (row, index, y) => {
+      let x = 12;
+
+      // Número de Empleado
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(17, 24, 39);
+      pdf.text(row.numero_empleado, x + colW[0] / 2, y + 6, { align: 'center' });
+      x += colW[0];
+
+      // Nombre Completo
+      pdf.setFont('helvetica', 'normal');
+      const nombre = row.nombre_completo.length > 25 ? row.nombre_completo.substring(0, 25) + '...' : row.nombre_completo;
+      pdf.text(nombre, x + 2, y + 6);
+      x += colW[1];
+
+      // Área
+      pdf.text(row.area || '—', x + 2, y + 6);
+      x += colW[2];
+
+      // Departamento
+      pdf.text(row.departamento || '—', x + 2, y + 6);
+      x += colW[3];
+
+      // Estado
+      pdf.setFont('helvetica', 'bold');
+      if (row.activo) {
+        pdf.setTextColor(16, 185, 129);
+        pdf.text('ACTIVO', x + colW[4] / 2, y + 6, { align: 'center' });
+      } else {
+        pdf.setTextColor(239, 68, 68);
+        pdf.text('INACTIVO', x + colW[4] / 2, y + 6, { align: 'center' });
+      }
+      x += colW[4];
+
+      // Última Actualización (fecha de generación)
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      const hoy = new Date().toLocaleDateString('es-MX');
+      pdf.text(hoy, x + colW[5] / 2, y + 6, { align: 'center' });
+
+      // Línea separadora
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, y + 9, pageWidth - 10, y + 9);
+    };
+
+    /* ===============================
+      6️⃣ PAGINADO
+    =============================== */
+    let page = 1;
+    for (let i = 0; i < employees.length; i += MAX_ROWS) {
+      if (page > 1) pdf.addPage();
+      drawHeader(page);
+
+      let y = 55;
+      drawTableHeader(y);
+      y += 9;
+
+      employees.slice(i, i + MAX_ROWS).forEach((row, index) => {
+        drawRow(row, i + index, y);
+        y += 10;
+      });
+
+      page++;
+    }
+
+    /* ===============================
+      7️⃣ FOOTER
+    =============================== */
+    pdf.setPage(totalPages);
+    pdf.setFontSize(7);
+    pdf.setTextColor(107, 114, 128);
+    pdf.text(
+      'Sistema de Control de Asistencias · Todos los derechos reservados',
+      pageWidth / 2,
+      pageHeight - 12,
+      { align: 'center' }
+    );
+
+    pdf.save(`reporte_empleados_${new Date().toISOString().split('T')[0]}.pdf`);
+  } catch (e) {
+    console.error(e);
+    alert('Error al generar PDF de empleados');
   }
 };
 
-  // Exportar verificación de asistencia a CSV (MODIFICADO)
-  const exportAttendanceCheckToCSV = () => {
+// Exportar verificación de asistencia diaria con diseño similar
+// Exportar verificación de asistencia diaria con diseño similar - CORREGIDO
+const exportAttendanceCheckToExcel = async () => {
   try {
-    const headerInfo = [
-      ['VERIFICACIÓN DE ASISTENCIA - REPORTE DIARIO'],
-      [`Fecha de verificación: ${currentDate}`],
-      [`Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}`],
-      [`Hora de corte: 9:00 AM (Jalisco)`],
-      [`Total empleados activos: ${attendanceCheckData.length}`],
-      ['']
+    if (attendanceCheckData.length === 0) {
+      alert('No hay datos de verificación para exportar');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    /* ===============================
+       TÍTULO Y ENCABEZADOS
+    =============================== */
+    
+    // Título principal
+    const titleRow1 = ['VERIFICACIÓN DIARIA DE ASISTENCIA'];
+    const titleRow2 = [`Fecha: ${currentDate}`];
+    const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
+    const titleRow4 = []; // Fila vacía
+    
+    // Estadísticas
+    const asistieron = attendanceCheckData.filter(e => e.attendedToday).length;
+    const antes9AM = attendanceCheckData.filter(e => e.before9AM).length;
+    const sinRegistro = attendanceCheckData.filter(e => !e.attendedToday).length;
+    const porcentaje = attendanceCheckData.length > 0 ? ((asistieron / attendanceCheckData.length) * 100).toFixed(1) : 0;
+    
+    const statsRow1 = [`Total empleados: ${attendanceCheckData.length}`];
+    const statsRow2 = [`Asistieron hoy: ${asistieron}`];
+    const statsRow3 = [`Antes de 9:00 AM: ${antes9AM}`];
+    const statsRow4 = [`Sin registro: ${sinRegistro}`];
+    const statsRow5 = [`Porcentaje de asistencia: ${porcentaje}%`];
+    const statsRow6 = []; // Fila vacía
+    
+    // Encabezados de tabla
+    const headers = [
+      'Número Empleado',
+      'Nombre',
+      'Área',
+      'Departamento',
+      'Asistió Hoy',
+      'Antes 9:00 AM',
+      'Tipo de Registro',
+      'Última Hora',
+      'Observación'
     ];
 
-    const headers = [
-      'N° EMPLEADO',
-      'NOMBRE COMPLETO', 
-      'ÁREA', 
-      'DEPARTAMENTO', 
-      'ASISTIÓ HOY',
-      'REGISTRÓ ANTES DE 9:00 AM',
-      'TIPO DE REGISTRO',
-      'HORA ÚLTIMO REGISTRO',
-      'OBSERVACIONES',
-      'ESTATUS GENERAL'
-    ];
-    
-    const csvData = attendanceCheckData.map(employee => {
-      const asistioHoy = employee.attendedToday ? 'SÍ' : 'NO';
-      const antes9AM = employee.before9AM ? 'SÍ' : 'NO';
-      const estatus = employee.attendedToday ? 
-        (employee.before9AM ? 'EN HORA' : 'REGISTRÓ TARDE') : 
-        'SIN REGISTRO';
+    /* ===============================
+       DATOS DE LA TABLA
+    =============================== */
+    const rows = attendanceCheckData.map(e => {
+      // Obtener observación si existe
+      const observacion = observaciones[e.id] || '';
       
       return [
-        employee.id,
-        `"${employee.name}"`,
-        `"${employee.area}"`,
-        `"${employee.departamento}"`,
-        asistioHoy,
-        antes9AM,
-        employee.attendanceType.toUpperCase(),
-        employee.lastTime || 'N/A',
-        `"${observaciones[employee.id] || 'SIN OBSERVACIONES'}"`,
-        estatus
+        e.id,
+        e.name,
+        e.area,
+        e.departamento || '',
+        e.attendedToday ? 'SÍ' : 'NO',
+        e.before9AM ? 'SÍ' : 'NO',
+        e.attendanceType?.toUpperCase() || 'SIN REGISTRO',
+        e.lastTime || '--:--',
+        observacion
       ];
     });
 
-    const estadisticas = {
-      asistieron: attendanceCheckData.filter(e => e.attendedToday).length,
-      antes9AM: attendanceCheckData.filter(e => e.before9AM).length,
-      sinRegistro: attendanceCheckData.filter(e => !e.attendedToday).length,
-      registraronTarde: attendanceCheckData.filter(e => e.attendedToday && !e.before9AM).length
-    };
-
-    const footerInfo = [
-      [''],
-      ['ESTADÍSTICAS DEL DÍA:'],
-      [`- Empleados que asistieron: ${estadisticas.asistieron} (${((estadisticas.asistieron/attendanceCheckData.length)*100).toFixed(1)}%)`],
-      [`- Asistieron antes de 9:00 AM: ${estadisticas.antes9AM} (${((estadisticas.antes9AM/attendanceCheckData.length)*100).toFixed(1)}%)`],
-      [`- Registraron después de 9:00 AM: ${estadisticas.registraronTarde}`],
-      [`- Sin registro de asistencia: ${estadisticas.sinRegistro}`],
-      [''],
-      ['NOTA: Los empleados que no registran antes de las 9:00 AM deben ser notificados']
+    /* ===============================
+       CONSTRUIR LA HOJA DE CÁLCULO
+    =============================== */
+    const sheetData = [
+      titleRow1,
+      titleRow2,
+      titleRow3,
+      titleRow4,
+      statsRow1,
+      statsRow2,
+      statsRow3,
+      statsRow4,
+      statsRow5,
+      statsRow6,
+      headers,
+      ...rows
     ];
 
-    const csvContent = [
-      ...headerInfo.map(row => row.join(',')),
-      headers.join(','),
-      ...csvData.map(row => row.join(',')),
-      ...footerInfo.map(row => row.join(','))
-    ].join('\n');
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-    const bom = '\uFEFF';
-    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const filename = `Verificacion_Asistencia_${currentDate.replace(/\//g,'-')}.csv`;
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    showNotification(`✅ Verificación exportada (${attendanceCheckData.length} empleados)`, 'success');
-  } catch (error) {
-    console.error('Error exportando verificación:', error);
-    showNotification('❌ Error al exportar verificación', 'error');
+    /* ===============================
+       APLICAR ESTILOS Y FORMATOS
+    =============================== */
+
+    // Definir estilos
+    const titleStyle = {
+      font: { bold: true, sz: 16, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const subtitleStyle = {
+      font: { bold: true, sz: 12, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const statsStyle = {
+      font: { bold: true, sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const headerStyle = {
+      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '2E5A8D' } }, // Azul oscuro
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    };
+
+    const cellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const nombreCellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const observacionCellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    // Aplicar estilos a las celdas
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    for (let R = 0; R <= range.e.r; R++) {
+      for (let C = 0; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (!cell) continue;
+
+        // Filas de título (1-3)
+        if (R === 0 || R === 1) {
+          cell.s = titleStyle;
+          // Combinar celdas para el título
+          if (R === 0) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+          }
+          if (R === 1) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+          }
+        }
+
+        // Fila de generado (2)
+        if (R === 2) {
+          cell.s = subtitleStyle;
+          if (!ws['!merges']) ws['!merges'] = [];
+          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+        }
+
+        // Filas de estadísticas (4-8)
+        if (R >= 4 && R <= 8) {
+          cell.s = statsStyle;
+        }
+
+        // Encabezados de tabla (fila 10, considerando filas vacías)
+        if (R === 10) {
+          cell.s = headerStyle;
+        }
+
+        // Filas de datos (desde la fila 11 en adelante)
+        if (R > 10) {
+          // Columna de Nombre (columna 1)
+          if (C === 1) {
+            cell.s = nombreCellStyle;
+          }
+          // Columna de Observación (última columna)
+          else if (C === headers.length - 1) {
+            cell.s = observacionCellStyle;
+          }
+          // Otras columnas
+          else {
+            cell.s = cellStyle;
+          }
+        }
+      }
+    }
+
+    /* ===============================
+       AJUSTAR ANCHO DE COLUMNAS
+    =============================== */
+    ws['!cols'] = [
+      { wch: 16 },  // Número Empleado
+      { wch: 30 },  // Nombre
+      { wch: 15 },  // Área
+      { wch: 18 },  // Departamento
+      { wch: 12 },  // Asistió Hoy
+      { wch: 14 },  // Antes 9:00 AM
+      { wch: 18 },  // Tipo de Registro
+      { wch: 12 },  // Última Hora
+      { wch: 40 }   // Observación
+    ];
+
+    /* ===============================
+       CONGELAR PANELES
+    =============================== */
+    ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
+
+    // CORRECCIÓN: Reemplazar barras por guiones en el nombre de la hoja
+    const safeDate = currentDate.replace(/\//g, '-'); // Reemplazar / por -
+    XLSX.utils.book_append_sheet(wb, ws, `Verificacion ${safeDate}`);
+
+    /* ===============================
+       GUARDAR ARCHIVO
+    =============================== */
+    const fileName = `VERIFICACION_ASISTENCIA_${currentDate.replace(/\//g, '-')}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+
+    console.log('✅ Verificación diaria exportada con diseño de imagen');
+  } catch (e) {
+    console.error('❌ Error al exportar verificación:', e);
+    alert('Error al exportar la verificación. Por favor, intente nuevamente.');
   }
 };
 
-  // Función para exportar verificación de asistencia a CSV (todas las fechas) (MODIFICADO)
-  const exportAttendanceCheckAllDatesToCSV = async () => {
-    try {
-      setAttendanceCheckLoading(true);
-      
-      const response = await fetch('/api/asistencias?limite=5000');
-      let allAttendance = [];
-      
-      if (response.ok) {
-        allAttendance = await response.json();
-      }
-      
-      const activeEmployees = employees.filter(emp => emp.activo);
-      const checkData = activeEmployees.map(employee => {
-        const employeeRecords = allAttendance.filter(record => 
-          record.numero_empleado === employee.numero_empleado
-        );
-        
-        const totalRegistros = employeeRecords.length;
-        const diasConRegistro = new Set(employeeRecords.map(r => r.fecha || r.date)).size;
-        const ultimaAsistencia = employeeRecords.length > 0 
-          ? employeeRecords.sort((a, b) => new Date(b.marca_tiempo || b.timestamp) - new Date(a.marca_tiempo || a.timestamp))[0]
-          : null;
-        
-        return {
-          id: employee.numero_empleado,
-          name: employee.nombre_completo,
-          area: employee.area,
-          departamento: employee.departamento || '',
-          totalRegistros,
-          diasConRegistro,
-          ultimaFecha: ultimaAsistencia ? (ultimaAsistencia.fecha || ultimaAsistencia.date) : '',
-          ultimaHora: ultimaAsistencia ? (ultimaAsistencia.hora || ultimaAsistencia.time) : '',
-          ultimoTipo: ultimaAsistencia ? (ultimaAsistencia.tipo_registro || ultimaAsistencia.type) : ''
-        };
-      });
-      
-      const headers = ['Número Empleado', 'Nombre', 'Área', 'Departamento', 'Total Registros', 'Días con Registro', 'Última Fecha', 'Última Hora', 'Último Tipo'];
-      const csvContent = [
-        headers.join(','),
-        ...checkData.map(row => [
-          row.id,
-          `"${row.name}"`,
-          `"${row.area}"`,
-          `"${row.departamento}"`,
-          row.totalRegistros,
-          row.diasConRegistro,
-          row.ultimaFecha,
-          row.ultimaHora,
-          row.ultimoTipo
-        ].join(','))
-      ].join('\n');
-
-      const bom = '\uFEFF';
-      const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `reporte_asistencia_completo_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      setAttendanceCheckLoading(false);
-      alert(`Reporte de asistencia exportado exitosamente (${activeEmployees.length} empleados)`);
-    } catch (error) {
-      console.error('Error exportando reporte completo:', error);
-      setAttendanceCheckLoading(false);
-      alert('Error al exportar el reporte de asistencia');
-    }
-  };
-
-  // Función para exportar verificación de asistencia a PDF (todas las fechas) (MODIFICADO)
   const exportAttendanceCheckToPDF = async () => {
+  try {
+    const { jsPDF } = await import('jspdf');
+
+    /* ===============================
+      1️⃣ MAPAS DE OBSERVACIONES Y EMPLEADOS
+    =============================== */
+    let observacionesMap = {};
     try {
-      setAttendanceCheckLoading(true);
-      
-      const response = await fetch('/api/asistencias?limite=5000');
-      let allAttendance = [];
-      
-      if (response.ok) {
-        allAttendance = await response.json();
+      const obsRes = await fetch('/api/observaciones');
+      if (obsRes.ok) {
+        const data = await obsRes.json();
+        data.forEach(obs => {
+          observacionesMap[obs.employeeId] = obs.text;
+        });
       }
-      
-      const { jsPDF } = await import('jspdf');
-      const html2canvas = (await import('html2canvas')).default;
-      
-      const activeEmployees = employees.filter(emp => emp.activo);
-      const checkData = activeEmployees.map(employee => {
-        const employeeRecords = allAttendance.filter(record => 
-          record.numero_empleado === employee.numero_empleado
-        );
-        
-        const totalRegistros = employeeRecords.length;
-        const diasConRegistro = new Set(employeeRecords.map(r => r.fecha || r.date)).size;
-        const ultimaAsistencia = employeeRecords.length > 0 
-          ? employeeRecords.sort((a, b) => new Date(b.marca_tiempo || b.timestamp) - new Date(a.marca_tiempo || a.timestamp))[0]
-          : null;
-        
-        return {
-          id: employee.numero_empleado,
-          name: employee.nombre_completo,
-          area: employee.area,
-          departamento: employee.departamento || '',
-          totalRegistros,
-          diasConRegistro,
-          ultimaAsistencia
-        };
-      });
-      
-      const tableElement = document.createElement('div');
-      tableElement.style.position = 'absolute';
-      tableElement.style.left = '-9999px';
-      tableElement.style.width = '800px';
-      
-      let tableHTML = `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h1 style="text-align: center; color: #1f2937; margin-bottom: 10px;">
-            Reporte de Asistencia - Todas las Fechas
-          </h1>
-          <div style="text-align: center; color: #6b7280; margin-bottom: 20px; font-size: 14px;">
-            <div>Generado: ${new Date().toLocaleString()}</div>
-            <div>Empleados activos: ${activeEmployees.length}</div>
-            <div>Registros totales: ${allAttendance.length}</div>
-            <div>Período: Todos los registros disponibles</div>
-          </div>
-          <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-            <thead>
-              <tr style="background-color: #f3f4f6; border-bottom: 2px solid #d1d5db;">
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">N° Empleado</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Nombre</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Área</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Departamento</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Total Registros</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Días con Registro</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Última Asistencia</th>
-              </tr>
-            </thead>
-            <tbody>
-      `;
-      
-      checkData.forEach((employee, index) => {
-        const bgColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
-        const ultimaFecha = employee.ultimaAsistencia 
-          ? `${employee.ultimaAsistencia.fecha || employee.ultimaAsistencia.date} ${employee.ultimaAsistencia.hora || employee.ultimaAsistencia.time}`
-          : 'Sin registros';
-        
-        tableHTML += `
-          <tr style="background-color: ${bgColor};">
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${employee.id}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${employee.name}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${employee.area}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${employee.departamento || '-'}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">${employee.totalRegistros}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">${employee.diasConRegistro}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${ultimaFecha}</td>
-          </tr>
-        `;
-      });
-      
-      tableHTML += `
-            </tbody>
-          </table>
-          <div style="margin-top: 20px; padding: 15px; background-color: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
-            <h3 style="margin-top: 0; color: #0369a1;">Resumen General</h3>
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px;">
-              <div><strong>Total empleados activos:</strong> ${activeEmployees.length}</div>
-              <div><strong>Total registros:</strong> ${allAttendance.length}</div>
-              <div><strong>Empleado con más registros:</strong> ${checkData.length > 0 ? Math.max(...checkData.map(e => e.totalRegistros)) : 0}</div>
-              <div><strong>Promedio registros por empleado:</strong> ${checkData.length > 0 ? (allAttendance.length / activeEmployees.length).toFixed(1) : 0}</div>
-            </div>
-          </div>
-          <div style="margin-top: 20px; font-size: 11px; color: #6b7280; text-align: right;">
-            Página 1 de 1 • Generado por Sistema de Asistencias
-          </div>
-        </div>
-      `;
-      
-      tableElement.innerHTML = tableHTML;
-      document.body.appendChild(tableElement);
-      
-      const canvas = await html2canvas(tableElement, {
-        scale: 2,
-        useCORS: true,
-        logging: false
-      });
-      
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      const imgWidth = 297;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
-      pdf.save(`reporte_asistencia_completo_${new Date().toISOString().split('T')[0]}.pdf`);
-      
-      document.body.removeChild(tableElement);
-      
-      setAttendanceCheckLoading(false);
-      alert(`Reporte de asistencia exportado a PDF exitosamente (${activeEmployees.length} empleados)`);
-    } catch (error) {
-      console.error('Error exportando verificación a PDF:', error);
-      setAttendanceCheckLoading(false);
-      alert('Error al exportar el reporte de asistencia a PDF');
-    }
-  };
+    } catch {}
 
-  // ============ FUNCIONES DE EXPORTACIÓN PARA TABLA SEMANAL ============
-  const exportWeeklyToCSV = () => {
-    try {
-      const headers = ['Nombre', 'Área', 'Departamento', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Faltas Totales'];
-      const csvContent = [
-        headers.join(','),
-        ...weeklyData.map(row => [
-          `"${row.nombre}"`,
-          `"${row.area}"`,
-          `"${row.departamento || ''}"`,
-          row.lunes === 'X' ? 'Presente' : 'Ausente',
-          row.martes === 'X' ? 'Presente' : 'Ausente',
-          row.miercoles === 'X' ? 'Presente' : 'Ausente',
-          row.jueves === 'X' ? 'Presente' : 'Ausente',
-          row.viernes === 'X' ? 'Presente' : 'Ausente',
-          row.faltas
-        ].join(','))
-      ].join('\n');
+    /* ===============================
+      2️⃣ UNIR DATOS CON OBSERVACIONES
+    =============================== */
+    const checkDataFinal = attendanceCheckData.map(employee => {
+      const observacion = observacionesMap[employee.id] || '—';
+      
+      return {
+        ...employee,
+        observacion: observacion.trim() ? observacion : '—'
+      };
+    });
 
-      const bom = '\uFEFF';
-      const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `reporte_semanal_${weekRange.start.replace(/\//g, '-')}_${weekRange.end.replace(/\//g, '-')}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      alert('Reporte semanal exportado exitosamente');
-    } catch (error) {
-      console.error('Error exportando reporte semanal:', error);
-      alert('Error al exportar reporte semanal');
-    }
-  };
+    /* ===============================
+      3️⃣ PDF BASE
+    =============================== */
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
 
-  const exportWeeklyToPDF = async () => {
-    try {
-      const { jsPDF } = await import('jspdf');
-      const html2canvas = (await import('html2canvas')).default;
-      
-      const tableElement = document.createElement('div');
-      tableElement.style.position = 'absolute';
-      tableElement.style.left = '-9999px';
-      tableElement.style.width = '800px';
-      
-      let tableHTML = `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h1 style="text-align: center; color: #1f2937; margin-bottom: 10px;">
-            Reporte Semanal de Asistencias
-          </h1>
-          <div style="text-align: center; color: #6b7280; margin-bottom: 20px; font-size: 14px;">
-            <div>Período: ${weekRange.start} al ${weekRange.end}</div>
-            <div>Generado: ${new Date().toLocaleString()}</div>
-            <div>Total empleados: ${weeklyData.length}</div>
-          </div>
-          <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-            <thead>
-              <tr style="background-color: #f3f4f6; border-bottom: 2px solid #d1d5db;">
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Nombre</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Área</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Departamento</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Lunes</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Martes</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Miércoles</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Jueves</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Viernes</th>
-                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Faltas</th>
-              </tr>
-            </thead>
-            <tbody>
-      `;
-      
-      weeklyData.forEach((row, index) => {
-        const bgColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
-        tableHTML += `
-          <tr style="background-color: ${bgColor};">
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${row.nombre}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${row.area}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px;">${row.departamento || '-'}</td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">
-              <span style="display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background-color: ${row.lunes === 'X' ? '#d1fae5' : '#fee2e2'}; color: ${row.lunes === 'X' ? '#065f46' : '#991b1b'};">
-                ${row.lunes === 'X' ? '✓' : '✗'}
-              </span>
-            </td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">
-              <span style="display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background-color: ${row.martes === 'X' ? '#d1fae5' : '#fee2e2'}; color: ${row.martes === 'X' ? '#065f46' : '#991b1b'};">
-                ${row.martes === 'X' ? '✓' : '✗'}
-              </span>
-            </td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">
-              <span style="display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background-color: ${row.miercoles === 'X' ? '#d1fae5' : '#fee2e2'}; color: ${row.miercoles === 'X' ? '#065f46' : '#991b1b'};">
-                ${row.miercoles === 'X' ? '✓' : '✗'}
-              </span>
-            </td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">
-              <span style="display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background-color: ${row.jueves === 'X' ? '#d1fae5' : '#fee2e2'}; color: ${row.jueves === 'X' ? '#065f46' : '#991b1b'};">
-                ${row.jueves === 'X' ? '✓' : '✗'}
-              </span>
-            </td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">
-              <span style="display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background-color: ${row.viernes === 'X' ? '#d1fae5' : '#fee2e2'}; color: ${row.viernes === 'X' ? '#065f46' : '#991b1b'};">
-                ${row.viernes === 'X' ? '✓' : '✗'}
-              </span>
-            </td>
-            <td style="border: 1px solid #e5e7eb; padding: 8px; text-align: center;">
-              <span style="display: inline-block; width: 24px; height: 24px; line-height: 24px; border-radius: 50%; background-color: ${row.faltas > 0 ? '#fee2e2' : '#d1fae5'}; color: ${row.faltas > 0 ? '#991b1b' : '#065f46'}; font-weight: bold;">
-                ${row.faltas}
-              </span>
-            </td>
-          </tr>
-        `;
+    const MAX_ROWS = 12;
+    const totalPages = Math.ceil(checkDataFinal.length / MAX_ROWS);
+
+    /* ===============================
+      4️⃣ HEADER MINIMALISTA
+    =============================== */
+    const drawHeader = (page) => {
+      // Línea superior
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, 26, pageWidth - 10, 26);
+
+      // Título
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.setTextColor(17, 24, 39);
+      pdf.text('Verificación de Asistencia Diaria', 15, 15);
+
+      // Subtítulo
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        `Fecha: ${currentDate} · Hora de corte: 9:00 AM`,
+        15,
+        22
+      );
+
+      // Página
+      pdf.text(
+        `Página ${page} de ${totalPages}`,
+        pageWidth - 15,
+        22,
+        { align: 'right' }
+      );
+
+      /* ===== Métricas ===== */
+      const y = 30;
+      const cardW = 40;
+      const gap = 6;
+
+      const asistieron = checkDataFinal.filter(e => e.attendedToday).length;
+      const antes9AM = checkDataFinal.filter(e => e.before9AM).length;
+      const sinRegistro = checkDataFinal.filter(e => !e.attendedToday).length;
+      const porcentaje = checkDataFinal.length > 0 ? ((asistieron / checkDataFinal.length) * 100).toFixed(1) : 0;
+
+      const metrics = [
+        { t: 'Empleados', v: checkDataFinal.length },
+        { t: 'Asistieron', v: asistieron },
+        { t: 'Antes 9 AM', v: antes9AM },
+        { t: '% Asistencia', v: `${porcentaje}%` },
+        { t: 'Sin Registro', v: sinRegistro }
+      ];
+
+      metrics.forEach((m, i) => {
+        const x = 10 + i * (cardW + gap);
+        pdf.setDrawColor(229, 231, 235);
+        pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+        pdf.setFontSize(7);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+        pdf.setFontSize(14);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
       });
-      
-      tableHTML += `
-            </tbody>
-          </table>
-          <div style="margin-top: 20px; font-size: 11px; color: #6b7280; text-align: right;">
-            Página 1 de 1 • Generado por Sistema de Asistencias
-          </div>
-        </div>
-      `;
-      
-      tableElement.innerHTML = tableHTML;
-      document.body.appendChild(tableElement);
-      
-      const canvas = await html2canvas(tableElement, {
-        scale: 2,
-        useCORS: true,
-        logging: false
-      });
-      
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      const imgWidth = 297;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
-      pdf.save(`reporte_semanal_${weekRange.start.replace(/\//g, '-')}_${weekRange.end.replace(/\//g, '-')}.pdf`);
-      
-      document.body.removeChild(tableElement);
-      
-      alert(`Reporte semanal exportado a PDF exitosamente (${weeklyData.length} empleados)`);
-    } catch (error) {
-      console.error('Error exportando reporte semanal a PDF:', error);
-      alert('Error al exportar reporte semanal a PDF');
-    }
-  };
+    };
 
-  // Función para aplicar filtros
-const applyFilters = async (e) => {
-  e.preventDefault();
-  setCurrentAttendancePage(1);
-  
-  // Mostrar información de depuración
-  console.log('🔍 Aplicando filtros:', {
-    fecha: dateFilter,
-    busqueda: searchTerm
-  });
-  
-  if (dateFilter) {
-    console.log('📅 Verificando si la fecha existe en la lista...');
-    const fechaExiste = availableDates.some(f => f.valor === dateFilter);
-    console.log(`❓ ¿Fecha ${dateFilter} existe? ${fechaExiste ? 'SÍ' : 'NO'}`);
-    
-    if (!fechaExiste && availableDates.length > 0) {
-      console.log('⚠️ La fecha seleccionada no está en la lista disponible');
-      console.log('📋 Fechas disponibles:', availableDates.map(f => f.valor));
-      
-      // Sugerir la fecha más cercana
-      const sugerencia = availableDates[0];
-      if (sugerencia && confirm(`La fecha "${dateFilter}" no tiene registros.\n\n¿Desea ver los registros de "${sugerencia.valor}" en su lugar?`)) {
-        setDateFilter(sugerencia.valor);
+    /* ===============================
+      5️⃣ TABLA
+    =============================== */
+    // Ajustar anchos de columnas
+    const colW = [22, 45, 28, 32, 18, 20, 22, 18, 38];
+
+    const drawTableHeader = (y) => {
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(55, 65, 81);
+
+      const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Asistió', 'Antes 9AM', 'Tipo', 'Hora', 'Observación'];
+      let x = 12;
+      headers.forEach((h, i) => {
+        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+        x += colW[i];
+      });
+    };
+
+    const drawRow = (row, y) => {
+      let x = 12;
+
+      // Número de Empleado (ID)
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(17, 24, 39);
+      pdf.text(row.id || '—', x + colW[0] / 2, y + 6, { align: 'center' });
+      x += colW[0];
+
+      // Nombre
+      pdf.setFont('helvetica', 'normal');
+      const nombre = row.name.length > 18 ? row.name.substring(0, 18) + '...' : row.name;
+      pdf.text(nombre, x + 2, y + 6);
+      x += colW[1];
+
+      // Área
+      pdf.text(row.area || '—', x + 2, y + 6);
+      x += colW[2];
+
+      // Departamento
+      pdf.text(row.departamento || '—', x + 2, y + 6);
+      x += colW[3];
+
+      // Asistió Hoy
+      pdf.setFont('helvetica', 'bold');
+      if (row.attendedToday) {
+        pdf.setTextColor(16, 185, 129);
+        pdf.text('SÍ', x + colW[4] / 2, y + 6, { align: 'center' });
+      } else {
+        pdf.setTextColor(239, 68, 68);
+        pdf.text('NO', x + colW[4] / 2, y + 6, { align: 'center' });
       }
+      x += colW[4];
+
+      // Antes de 9:00 AM
+      if (row.before9AM) {
+        pdf.setTextColor(16, 185, 129);
+        pdf.text('SÍ', x + colW[5] / 2, y + 6, { align: 'center' });
+      } else {
+        pdf.setTextColor(239, 68, 68);
+        pdf.text('NO', x + colW[5] / 2, y + 6, { align: 'center' });
+      }
+      x += colW[5];
+
+      // Tipo de Registro
+      pdf.setTextColor(75, 85, 99);
+      pdf.setFont('helvetica', 'normal');
+      const tipo = row.attendanceType || 'Sin registro';
+      const tipoShort = tipo.length > 8 ? tipo.substring(0, 8) + '...' : tipo;
+      pdf.text(tipoShort.toUpperCase(), x + colW[6] / 2, y + 6, { align: 'center' });
+      x += colW[6];
+
+      // Hora Último Registro
+      pdf.text(row.lastTime || '—', x + colW[7] / 2, y + 6, { align: 'center' });
+      x += colW[7];
+
+      // Observación
+      const obs = row.observacion || '—';
+      const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
+      pdf.text(obsShort, x + 2, y + 6);
+
+      // Línea separadora
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, y + 9, pageWidth - 10, y + 9);
+    };
+
+    /* ===============================
+      6️⃣ PAGINADO
+    =============================== */
+    let page = 1;
+    for (let i = 0; i < checkDataFinal.length; i += MAX_ROWS) {
+      if (page > 1) pdf.addPage();
+      drawHeader(page);
+
+      let y = 55;
+      drawTableHeader(y);
+      y += 9;
+
+      checkDataFinal.slice(i, i + MAX_ROWS).forEach((row) => {
+        drawRow(row, y);
+        y += 10;
+      });
+
+      page++;
     }
+
+    /* ===============================
+      7️⃣ FOOTER
+    =============================== */
+    pdf.setPage(totalPages);
+    pdf.setFontSize(7);
+    pdf.setTextColor(107, 114, 128);
+    pdf.text(
+      'Generado por Sistema de Control de Asistencias · Jalisco UTC-6',
+      pageWidth / 2,
+      pageHeight - 12,
+      { align: 'center' }
+    );
+
+    pdf.save(`verificacion_asistencia_${currentDate.replace(/\//g, '-')}.pdf`);
+  } catch (e) {
+    console.error(e);
+    alert('Error al generar PDF de verificación');
   }
-  
-  await fetchDataFromDB();
 };
 
-  // Función para limpiar filtros
+const exportAttendanceToPDF = async () => {
+  try {
+    const { jsPDF } = await import('jspdf');
+
+    /* ===============================
+      1️⃣ FILTRAR DATOS (igual que en CSV)
+    =============================== */
+    const filteredData = attendanceData.filter(record => {
+      const matchesSearch = 
+        (record.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+         record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (record.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+         record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (record.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+         record.department?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (record.departamento?.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesDate = !dateFilter || record.fecha === dateFilter || record.date === dateFilter;
+      
+      return matchesSearch && matchesDate;
+    });
+
+    /* ===============================
+      3️⃣ PDF BASE
+    =============================== */
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const MAX_ROWS = 12;
+    const totalPages = Math.ceil(filteredData.length / MAX_ROWS);
+
+    /* ===============================
+      4️⃣ HEADER MINIMALISTA
+    =============================== */
+    const drawHeader = (page) => {
+      // Línea superior
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, 26, pageWidth - 10, 26);
+
+      // Título
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.setTextColor(17, 24, 39);
+      pdf.text('Reporte de Asistencias', 15, 15);
+
+      // Subtítulo
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      
+      let subtitulo = `Total registros: ${filteredData.length}`;
+      if (dateFilter) subtitulo += ` · Fecha: ${dateFilter}`;
+      if (searchTerm) subtitulo += ` · Búsqueda: "${searchTerm.substring(0, 20)}${searchTerm.length > 20 ? '...' : ''}"`;
+      
+      pdf.text(subtitulo, 15, 22);
+
+      // Página
+      pdf.text(
+        `Página ${page} de ${totalPages}`,
+        pageWidth - 15,
+        22,
+        { align: 'right' }
+      );
+
+      /* ===== Métricas ===== */
+      const y = 30;
+      const cardW = 40;
+      const gap = 6;
+
+      const entradas = filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length;
+      const salidas = filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length;
+      const empleadosUnicos = [...new Set(filteredData.map(r => r.numero_empleado || r.employeeId))].length;
+
+      const metrics = [
+        { t: 'Registros', v: filteredData.length },
+        { t: 'Entradas', v: entradas },
+        { t: 'Empleados', v: empleadosUnicos },
+        { t: 'Fecha', v: dateFilter || 'Todas' }
+      ];
+
+      metrics.forEach((m, i) => {
+        const x = 10 + i * (cardW + gap);
+        pdf.setDrawColor(229, 231, 235);
+        pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+        pdf.setFontSize(7);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+        pdf.setFontSize(14);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+      });
+    };
+
+    /* ===============================
+      5️⃣ TABLA
+    =============================== */
+    const colW = [15, 25, 50, 35, 30, 20, 25, 20];
+
+    const drawTableHeader = (y) => {
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(55, 65, 81);
+
+      const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Fecha', 'Hora', 'Tipo'];
+      let x = 12;
+      headers.forEach((h, i) => {
+        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+        x += colW[i];
+      });
+    };
+
+    const drawRow = (row, index, y) => {
+      let x = 12;
+
+      // Número Empleado
+      // Número de Empleado
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(17, 24, 39);
+      pdf.text(row.numero_empleado, x + colW[0] / 2, y + 6, { align: 'center' });
+      x += colW[0];
+
+      // Nombre
+      pdf.setFont('helvetica', 'normal');
+      const nombre = (row.nombre_empleado || row.employeeName || 'SIN NOMBRE');
+      const nombreShort = nombre.length > 20 ? nombre.substring(0, 20) + '...' : nombre;
+      pdf.text(nombreShort, x + 2, y + 6);
+      x += colW[2];
+
+      // Área
+      pdf.text(row.area_empleado || row.department || '—', x + 2, y + 6);
+      x += colW[3];
+
+      // Departamento
+      pdf.text(row.departamento || '—', x + 2, y + 6);
+      x += colW[4];
+
+      // Fecha
+      const fecha = row.fecha || row.date || '';
+      pdf.text(fecha, x + colW[5] / 2, y + 6, { align: 'center' });
+      x += colW[5];
+
+      // Hora
+      const hora = row.hora || row.time || '';
+      pdf.text(hora, x + colW[6] / 2, y + 6, { align: 'center' });
+      x += colW[6];
+
+      // Tipo
+      pdf.setFont('helvetica', 'bold');
+      const tipo = row.tipo_registro || row.type || 'entrada';
+      if (tipo === 'entrada') {
+        pdf.setTextColor(16, 185, 129);
+        pdf.text('ENTRADA', x + colW[7] / 2, y + 6, { align: 'center' });
+      } else {
+        pdf.setTextColor(59, 130, 246);
+        pdf.text('SALIDA', x + colW[7] / 2, y + 6, { align: 'center' });
+      }
+
+      // Línea separadora
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, y + 9, pageWidth - 10, y + 9);
+    };
+
+    /* ===============================
+      6️⃣ PAGINADO
+    =============================== */
+    let page = 1;
+    for (let i = 0; i < filteredData.length; i += MAX_ROWS) {
+      if (page > 1) pdf.addPage();
+      drawHeader(page);
+
+      let y = 55;
+      drawTableHeader(y);
+      y += 9;
+
+      filteredData.slice(i, i + MAX_ROWS).forEach((row, index) => {
+        drawRow(row, i + index, y);
+        y += 10;
+      });
+
+      page++;
+    }
+
+    /* ===============================
+      7️⃣ FOOTER
+    =============================== */
+    pdf.setPage(totalPages);
+    pdf.setFontSize(7);
+    pdf.setTextColor(107, 114, 128);
+    pdf.text(
+      `Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} · Zona: Jalisco (UTC-6)`,
+      pageWidth / 2,
+      pageHeight - 12,
+      { align: 'center' }
+    );
+
+    // Nombre del archivo
+    let filename = 'reporte_asistencias';
+    if (dateFilter) filename += `_${dateFilter.replace(/\//g, '-')}`;
+    if (searchTerm) {
+      const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
+      filename += `_busqueda_${termShort}`;
+    }
+    filename += `_${new Date().toISOString().split('T')[0]}`;
+
+    pdf.save(`${filename}.pdf`);
+  } catch (e) {
+    console.error(e);
+    alert('Error al generar PDF de asistencias');
+  }
+};
+
+  // ============ FUNCIONES DE FILTRO ============
+  
+  const applyFilters = async (e) => {
+    e.preventDefault();
+    setCurrentAttendancePage(1);
+    
+    console.log('🔍 Aplicando filtros:', {
+      fecha: dateFilter,
+      busqueda: searchTerm
+    });
+    
+    if (dateFilter) {
+      const fechaExiste = availableDates.some(f => f.valor === dateFilter);
+      
+      if (!fechaExiste && availableDates.length > 0) {
+        const sugerencia = availableDates[0];
+        if (sugerencia && confirm(`La fecha "${dateFilter}" no tiene registros.\n\n¿Desea ver los registros de "${sugerencia.valor}" en su lugar?`)) {
+          setDateFilter(sugerencia.valor);
+        }
+      }
+    }
+    
+    await fetchDataFromDB();
+  };
+
   const clearFilters = () => {
     setSearchTerm('');
     setDateFilter('');
     setCurrentAttendancePage(1);
-    
-    // Recargar la lista de fechas disponibles
     fetchAvailableDates();
-    
-    // Recargar datos
     fetchDataFromDB();
-    
     console.log('🧹 Filtros limpiados');
   };
 
-  // Función para obtener el estado de la base de datos
-  const getDbStatus = () => {
-    switch (dbStatus) {
-      case 'conectado':
-        return { color: 'text-green-600', bg: 'bg-green-100', text: 'Conectado' };
-      case 'conectando':
-        return { color: 'text-yellow-600', bg: 'bg-yellow-100', text: 'Conectando...' };
-      case 'error':
-        return { color: 'text-red-600', bg: 'bg-red-100', text: 'Error de conexión' };
-      default:
-        return { color: 'text-gray-600', bg: 'bg-gray-100', text: 'Desconectado' };
-    }
-  };
-
-  // Función para verificar si debe resaltar la fila en rojo
-  const shouldHighlightRow = (employee) => {
-    const ahora = new Date();
-    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
-    const currentHour = fechaJalisco.getUTCHours();
-    const currentMinutes = fechaJalisco.getUTCMinutes();
-    
-    const currentTimeInMinutes = currentHour * 60 + currentMinutes;
-    const deadlineMinutes = 9 * 60;
-    
-    if (currentTimeInMinutes >= deadlineMinutes) {
-      return !employee.attendedToday || !employee.before9AM;
-    }
-    
-    return false;
-  };
-
-  // Filtrar datos localmente
-  const filteredData = attendanceData.filter(record => {
-    const matchesSearch = 
-      (record.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (record.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (record.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       record.department?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (record.departamento?.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesDate = !dateFilter || record.fecha === dateFilter || record.date === dateFilter;
-    
-    return matchesSearch && matchesDate;
-  });
-
-  // Datos paginados para cada tabla
-  const paginatedAttendanceData = getPaginatedData(filteredData, currentAttendancePage);
-  const paginatedEmployeesData = getPaginatedData(employees, currentEmployeesPage);
-  const paginatedCheckData = getPaginatedData(attendanceCheckData, currentCheckPage);
-  const paginatedWeeklyData = getPaginatedData(weeklyData, currentWeeklyPage);
-
-  // Total de páginas para cada tabla
-  const totalAttendancePages = getTotalPages(filteredData);
-  const totalEmployeesPages = getTotalPages(employees);
-  const totalCheckPages = getTotalPages(attendanceCheckData);
-  const totalWeeklyPages = getTotalPages(weeklyData);
-
-  // Funciones para gestión de empleados (MODIFICADAS)
+  // ============ FUNCIONES DE GESTIÓN DE EMPLEADOS ============
+  
   const handleEmployeeFormChange = (e) => {
     const { name, value } = e.target;
     setEmployeeForm(prev => ({
@@ -2245,7 +2915,8 @@ const applyFilters = async (e) => {
     setShowEmployeeForm(false);
   };
 
-  // Componente simple para la tabla de asistencias
+  // ============ COMPONENTES ============
+  
   const AdminTable = ({ attendanceData, loading }) => {
     if (loading) return <div>Cargando...</div>;
     
@@ -2317,6 +2988,65 @@ const applyFilters = async (e) => {
     );
   };
 
+  // Función para obtener el estado de la base de datos
+  const getDbStatus = () => {
+    switch (dbStatus) {
+      case 'conectado':
+        return { color: 'text-green-600', bg: 'bg-green-100', text: 'Conectado' };
+      case 'conectando':
+        return { color: 'text-yellow-600', bg: 'bg-yellow-100', text: 'Conectando...' };
+      case 'error':
+        return { color: 'text-red-600', bg: 'bg-red-100', text: 'Error de conexión' };
+      default:
+        return { color: 'text-gray-600', bg: 'bg-gray-100', text: 'Desconectado' };
+    }
+  };
+
+  // Función para verificar si debe resaltar la fila en rojo
+  const shouldHighlightRow = (employee) => {
+    const ahora = new Date();
+    const fechaJalisco = new Date(ahora.getTime() + (JALISCO_OFFSET * 60 * 60 * 1000));
+    const currentHour = fechaJalisco.getUTCHours();
+    const currentMinutes = fechaJalisco.getUTCMinutes();
+    
+    const currentTimeInMinutes = currentHour * 60 + currentMinutes;
+    const deadlineMinutes = 9 * 60;
+    
+    if (currentTimeInMinutes >= deadlineMinutes) {
+      return !employee.attendedToday || !employee.before9AM;
+    }
+    
+    return false;
+  };
+
+  // Filtrar datos localmente
+  const filteredData = attendanceData.filter(record => {
+    const matchesSearch = 
+      (record.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (record.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (record.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+       record.department?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (record.departamento?.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    const matchesDate = !dateFilter || record.fecha === dateFilter || record.date === dateFilter;
+    
+    return matchesSearch && matchesDate;
+  });
+
+  // Datos paginados para cada tabla
+  const paginatedAttendanceData = getPaginatedData(filteredData, currentAttendancePage);
+  const paginatedEmployeesData = getPaginatedData(employees, currentEmployeesPage);
+  const paginatedCheckData = getPaginatedData(attendanceCheckData, currentCheckPage);
+  const paginatedWeeklyData = getPaginatedData(weeklyData, currentWeeklyPage);
+
+  // Total de páginas para cada tabla
+  const totalAttendancePages = getTotalPages(filteredData);
+  const totalEmployeesPages = getTotalPages(employees);
+  const totalCheckPages = getTotalPages(attendanceCheckData);
+  const totalWeeklyPages = getTotalPages(weeklyData);
+
   const dbStatusInfo = getDbStatus();
 
   return (
@@ -2348,10 +3078,11 @@ const applyFilters = async (e) => {
                   fetchAttendanceCheckData();
                   fetchObservaciones();
                   
-                  const weekStart = getWeekStartDate();
-                  const weekEnd = getWeekEndDate();
-                  setWeekRange({ start: weekStart, end: weekEnd });
-                  fetchWeeklyData(weekStart, weekEnd);
+                  const weekNumber = getCurrentWeekNumber();
+                  const weekRange = getWeekRangeByNumber(weekNumber);
+                  setSelectedWeek(weekNumber);
+                  setWeekRange(weekRange);
+                  fetchWeeklyData(weekRange.start, weekRange.end);
                 }}
                 disabled={refreshing}
                 className="flex items-center text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 hover:bg-gray-100 disabled:opacity-50"
@@ -2363,7 +3094,7 @@ const applyFilters = async (e) => {
                 href="/"
                 className="flex items-center text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 hover:bg-gray-100"
               >
-                ← Volver al Registro
+                Volver al Registro
               </a>
             </div>
           </div>
@@ -2372,22 +3103,8 @@ const applyFilters = async (e) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Información de conexión */}
-        <div className="mb-6">
+        <div className="mb-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center text-sm text-gray-600">
-                <ClockIcon className="w-4 h-4 mr-1" />
-                {lastUpdated ? (
-                  <>Última actualización: {formatDateTime(lastUpdated)}</>
-                ) : (
-                  'Cargando datos...'
-                )}
-              </div>
-              <div className="text-sm text-gray-600">
-                <DocumentTextIcon className="w-4 h-4 inline mr-1" />
-                {attendanceData.length} registros cargados
-              </div>
-            </div>
             {dbStatus === 'error' && (
               <div className="flex items-center text-sm text-red-600">
                 <ExclamationCircleIcon className="w-4 h-4 mr-1" />
@@ -2424,7 +3141,6 @@ const applyFilters = async (e) => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Registros Totales</p>
                 <p className="text-2xl font-bold text-gray-900">{stats.total_asistencias}</p>
-                <p className="text-xs text-gray-500 mt-1">En base de datos</p>
               </div>
             </div>
           </div>
@@ -2485,7 +3201,7 @@ const applyFilters = async (e) => {
           </div>
         </div>
 
-        {/* Sección de Verificación de Asistencia */}
+        {/* ============ SECCIÓN: VERIFICACIÓN DE ASISTENCIA ============ */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-800 flex items-center">
@@ -2511,32 +3227,22 @@ const applyFilters = async (e) => {
                   </svg>
                 </button>
                 
-                {/* Menú desplegable de exportación */}
+                {/* Menú desplegable de exportación para verificación - CORREGIDO */}
                 <div id="export-check-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
                   <div className="py-1" role="menu">
                     <button
                       onClick={() => {
-                        exportAttendanceCheckToCSV();
+                        exportAttendanceCheckToExcel();
                         const menu = document.getElementById('export-check-menu');
                         if (menu) menu.classList.add('hidden');
                       }}
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                       role="menuitem"
                     >
-                      <DocumentTextIcon className="w-4 h-4 mr-2 text-green-600" />
-                      Exportar Hoy (CSV)
-                    </button>
-                    <button
-                      onClick={() => {
-                        exportAttendanceCheckAllDatesToCSV();
-                        const menu = document.getElementById('export-check-menu');
-                        if (menu) menu.classList.add('hidden');
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      role="menuitem"
-                    >
-                      <DocumentTextIcon className="w-4 h-4 mr-2 text-blue-600" />
-                      Exportar Todas las Fechas (CSV)
+                      <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Exportar Hoy (Excel)
                     </button>
                     <button
                       onClick={() => {
@@ -2550,7 +3256,7 @@ const applyFilters = async (e) => {
                       <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Exportar Reporte Completo (PDF)
+                      Exportar PDF
                     </button>
                   </div>
                 </div>
@@ -2581,7 +3287,7 @@ const applyFilters = async (e) => {
                 </div>
                 <div className="text-sm text-gray-500 flex items-center">
                   <ClockIcon className="w-4 h-4 mr-1" />
-                  Hora actual (Jalisco): {getCurrentJaliscoTime()}
+                  Hora actual: {getCurrentJaliscoTime()}
                 </div>
               </div>
             </div>
@@ -2755,782 +3461,435 @@ const applyFilters = async (e) => {
                     {attendanceCheckData.filter(e => !e.attendedToday).length}
                   </span> sin asistencia
                 </div>
-                <div className="flex items-center">
-                  <ExclamationCircleIcon className="w-4 h-4 text-red-500 mr-1" />
-                  <span className="text-red-700 font-medium">
-                    {attendanceCheckData.filter(employee => shouldHighlightRow(employee)).length} 
-                    empleados pendientes
-                  </span>
-                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ============ NUEVA SECCIÓN: TABLA SEMANAL ============ */}
-        {/* Sección de Tabla Semanal - CÓDIGO CORREGIDO */}
-{/* ============ SECCIÓN: TABLA SEMANAL CORREGIDA ============ */}
-<div className="mb-8">
-  <div className="flex justify-between items-center mb-6">
-    <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-      <CalendarDaysIcon className="w-6 h-6 mr-2 text-indigo-600" />
-      Reporte Semanal de Asistencias
-    </h2>
-    <div className="flex gap-3" ref={exportWeeklyMenuRef}>
-      <div className="flex items-center space-x-3">
-        <div className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-lg">
-          Semana: {weekRange.start} al {weekRange.end}
-        </div>
-        
-        <div className="relative">
-          <button
-            onClick={() => {
-              const menu = document.getElementById('export-weekly-menu');
-              if (menu) {
-                menu.classList.toggle('hidden');
-              }
-            }}
-            disabled={weeklyData.length === 0}
-            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200 disabled:opacity-50"
-          >
-            <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-            Exportar Semanal
-            <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          
-          {/* Menú desplegable de exportación semanal */}
-          <div id="export-weekly-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-            <div className="py-1" role="menu">
-              <button
-                onClick={() => {
-                  exportWeeklyToCSV();
-                  const menu = document.getElementById('export-weekly-menu');
-                  if (menu) menu.classList.add('hidden');
-                }}
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                role="menuitem"
-              >
-                <DocumentTextIcon className="w-4 h-4 mr-2 text-green-600" />
-                Exportar CSV
-              </button>
-              <button
-                onClick={() => {
-                  exportWeeklyToPDF();
-                  const menu = document.getElementById('export-weekly-menu');
-                  if (menu) menu.classList.add('hidden');
-                }}
-                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                role="menuitem"
-              >
-                <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Exportar PDF
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <button
-        onClick={() => {
-          const weekStart = getWeekStartDate();
-          const weekEnd = getWeekEndDate();
-          setWeekRange({ start: weekStart, end: weekEnd });
-          fetchWeeklyData(weekStart, weekEnd);
-        }}
-        disabled={weeklyLoading}
-        className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
-      >
-        <ArrowPathIcon className={`w-4 h-4 mr-2 ${weeklyLoading ? 'animate-spin' : ''}`} />
-        Actualizar
-      </button>
-    </div>
-  </div>
-
-  <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-    <div className="p-6 border-b border-gray-200">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-800">
-            Asistencias por Semana (Lunes a Viernes)
-          </h3>
-          <p className="text-sm text-gray-600 mt-1">
-            Semana del {weekRange.start} al {weekRange.end}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Nota: Los días futuros y el 5/01/2026 no cuentan como faltas
-          </p>
-        </div>
-        <div className="text-sm text-gray-500">
-          <CircleStackIcon className="w-4 h-4 inline mr-1" />
-          Total empleados: {weeklyData.length}
-        </div>
-      </div>
-    </div>
-
-    <div className="p-4">
-      {weeklyLoading ? (
-        <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-2 text-gray-600">Cargando datos semanales...</p>
-        </div>
-      ) : weeklyData.length === 0 ? (
-        <div className="text-center py-8">
-          <CalendarDaysIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-          <p className="text-gray-600">No hay datos para esta semana</p>
-        </div>
-      ) : (
-        <>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Nombre
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Área
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Departamento
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Lunes
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Martes
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Miércoles
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Jueves
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Viernes
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Faltas Reales
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {paginatedWeeklyData.map((row, index) => {
-                  // Función para renderizar cada celda de día
-                  const renderDayCell = (dayName) => {
-                    const valor = row[dayName]; // 'X' o ''
-                    const fecha = row.fechas?.[dayName]; // fecha DD/MM/YYYY
-                    const esFuturo = row.esFuturo?.[dayName]; // true/false
-                    const esInactivo = row.esInactivo?.[dayName]; // true/false para 5/01/2026
-                    
-                    // Día futuro
-                    if (esFuturo) {
-                      return (
-                        <div className="flex justify-center">
-                          <div 
-                            className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
-                            title={`${fecha} - Día futuro (no cuenta como falta)`}
-                          >
-                            <ClockIcon className="w-4 h-4 text-gray-400" />
-                          </div>
-                        </div>
-                      );
-                    }
-                    
-                    // Día inactivo (5 de enero de 2026)
-                    if (esInactivo) {
-                      return (
-                        <div className="flex justify-center">
-                          <div 
-                            className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
-                            title={`${fecha} - Sistema no activo (no cuenta como falta)`}
-                          >
-                            <span className="text-xs text-gray-500">-</span>
-                          </div>
-                        </div>
-                      );
-                    }
-                    
-                    // Día pasado - mostrar asistencia real
-                    return (
-                      <div className="flex justify-center">
-                        {valor === 'X' ? (
-                          <div 
-                            className="w-6 h-6 rounded-full bg-green-100 border border-green-300 flex items-center justify-center"
-                            title={`${fecha} - Asistió`}
-                          >
-                            <CheckIcon className="w-4 h-4 text-green-600" />
-                          </div>
-                        ) : (
-                          <div 
-                            className="w-6 h-6 rounded-full bg-red-100 border border-red-300 flex items-center justify-center"
-                            title={`${fecha} - Ausente (falta)`}
-                          >
-                            <XMarkIcon className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  };
-                  
-                  return (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{row.nombre}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{row.area}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{row.departamento || '-'}</div>
-                      </td>
-                      
-                      {/* Lunes */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderDayCell('lunes')}
-                      </td>
-                      
-                      {/* Martes */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderDayCell('martes')}
-                      </td>
-                      
-                      {/* Miércoles */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderDayCell('miercoles')}
-                      </td>
-                      
-                      {/* Jueves */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderDayCell('jueves')}
-                      </td>
-                      
-                      {/* Viernes */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderDayCell('viernes')}
-                      </td>
-                      
-                      {/* Faltas reales (ya calculadas en el backend - NO incluye futuros ni 5/01/2026) */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex justify-center">
-                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                            row.faltas > 0 
-                              ? 'bg-red-100 text-red-800 border border-red-300' 
-                              : 'bg-green-100 text-green-800 border border-green-300'
-                          }`}>
-                            {row.faltas}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Controles de paginación para tabla semanal */}
-          <PaginationControls
-            currentPage={currentWeeklyPage}
-            totalPages={totalWeeklyPages}
-            onPageChange={(page) => setCurrentWeeklyPage(page)}
-            dataLength={weeklyData.length}
-          />
-        </>
-      )}
-    </div>
-    
-    {/* Resumen y leyenda */}
-    <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
-        <div className="mb-2 sm:mb-0">
-          <span className="font-medium">Faltas reales</span> no incluyen días futuros ni el 5/01/2026
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded-full bg-green-100 border border-green-300 flex items-center justify-center">
-              <CheckIcon className="w-3 h-3 text-green-600" />
-            </div>
-            <span className="text-xs">Asistió</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded-full bg-red-100 border border-red-300 flex items-center justify-center">
-              <XMarkIcon className="w-3 h-3 text-red-600" />
-            </div>
-            <span className="text-xs">Ausente</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
-              <ClockIcon className="w-3 h-3 text-gray-400" />
-            </div>
-            <span className="text-xs">Futuro</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
-              <span className="text-xs text-gray-500">-</span>
-            </div>
-            <span className="text-xs">Inactivo</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-      {/* Sección de Gestión de Empleados */}
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-            <UserGroupIcon className="w-6 h-6 mr-2 text-blue-600" />
-            Gestión de Empleados
-          </h2>
-          <div className="flex gap-3" ref={exportEmployeesMenuRef}>
-            <div className="relative">
-              <button
-                onClick={() => {
-                  const menu = document.getElementById('export-employees-menu');
-                  if (menu) {
-                    menu.classList.toggle('hidden');
-                  }
-                }}
-                disabled={employees.length === 0}
-                className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
-              >
-                <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-                Exportar Empleados
-                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              
-              {/* Menú desplegable de exportación */}
-              <div id="export-employees-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                <div className="py-1" role="menu">
-                  <button
-                    onClick={() => {
-                      exportEmployeesToCSV();
-                      const menu = document.getElementById('export-employees-menu');
-                      if (menu) menu.classList.add('hidden');
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    role="menuitem"
-                  >
-                    <DocumentTextIcon className="w-4 h-4 mr-2 text-green-600" />
-                    Exportar CSV
-                  </button>
-                  <button
-                    onClick={() => {
-                      exportEmployeesToPDF();
-                      const menu = document.getElementById('export-employees-menu');
-                      if (menu) menu.classList.add('hidden');
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    role="menuitem"
-                  >
-                    <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Exportar PDF
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => setShowEmployeeForm(true)}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-            >
-              <UserPlusIcon className="w-4 h-4 mr-2" />
-              Nuevo Empleado
-            </button>
-          </div>
-        </div>
-
-        {/* Formulario de Empleado (Modal) */}
-        {showEmployeeForm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    {employeeForm.isEditing ? 'Editar Empleado' : 'Nuevo Empleado'}
-                  </h3>
-                  <button
-                    onClick={resetEmployeeForm}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <XMarkIcon className="w-6 h-6" />
-                  </button>
-                </div>
-
-                <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Número de Empleado *
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        name="numero_empleado"
-                        value={employeeForm.numero_empleado}
-                        onChange={handleEmployeeFormChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder={employeeForm.isEditing ? 
-                          "Número actual: " + employeeForm.originalId : 
-                          "Ingresa el número (ej: 1, 2, 3...)"}
-                        disabled={false}
-                      />
-                      {!employeeForm.isEditing && (
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                    {formErrors.numero_empleado && (
-                      <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
-                    )}
-                    <p className="mt-1 text-xs text-gray-500">
-                      {employeeForm.isEditing ? 
-                        "Puedes cambiar el número si es necesario" : 
-                        "Ingresa manualmente el número del empleado"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nombre Completo *
-                    </label>
-                    <input
-                      type="text"
-                      name="nombre_completo"
-                      value={employeeForm.nombre_completo}
-                      onChange={handleEmployeeFormChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                        formErrors.nombre_completo ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="Ej: Juan Pérez"
-                    />
-                    {formErrors.nombre_completo && (
-                      <p className="mt-1 text-sm text-red-600">{formErrors.nombre_completo}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Área/Departamento *
-                    </label>
-                    <input
-                      type="text"
-                      name="area"
-                      value={employeeForm.area}
-                      onChange={handleEmployeeFormChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                        formErrors.area ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="Ej: Ventas, IT, RRHH"
-                    />
-                    {formErrors.area && (
-                      <p className="mt-1 text-sm text-red-600">{formErrors.area}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Departamento *
-                    </label>
-                    <input
-                      type="text"
-                      name="departamento"
-                      value={employeeForm.departamento}
-                      onChange={handleEmployeeFormChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                        formErrors.departamento ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="Ej: Ventas, Producción, Administración"
-                    />
-                    {formErrors.departamento && (
-                      <p className="mt-1 text-sm text-red-600">{formErrors.departamento}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Estado
-                    </label>
-                    <select
-                      name="activo"
-                      value={employeeForm.activo}
-                      onChange={handleEmployeeFormChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="Sí">Activo</option>
-                      <option value="No">Inactivo</option>
-                    </select>
-                  </div>
-
-                  <div className="flex gap-3 pt-4">
-                    <button
-                      type="submit"
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-                    >
-                      <CheckIcon className="w-4 h-4 mr-2" />
-                      {employeeForm.isEditing ? 'Actualizar' : 'Guardar'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={resetEmployeeForm}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tabla de Empleados */}
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Lista de Empleados
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {employees.length} empleados registrados
-                </p>
-              </div>
-              <div className="text-sm text-gray-500">
-                <CircleStackIcon className="w-4 h-4 inline mr-1" />
-                Base de datos MongoDB
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4">
-            {employeesLoading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-gray-600">Cargando empleados...</p>
-              </div>
-            ) : employees.length === 0 ? (
-              <div className="text-center py-8">
-                <UserGroupIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600">No hay empleados registrados</p>
-                <button
-                  onClick={() => setShowEmployeeForm(true)}
-                  className="mt-3 px-4 py-2 text-blue-600 hover:text-blue-800"
-                >
-                  Agregar primer empleado
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Número
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Nombre
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Área
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Departamento
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Estado
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Acciones
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {paginatedEmployeesData.map((employee) => (
-                        <tr key={employee.numero_empleado} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {employee.numero_empleado}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm text-gray-900">{employee.nombre_completo}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{employee.area}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">{employee.departamento || '-'}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              employee.activo 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {employee.activo ? 'Activo' : 'Inactivo'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleEditEmployee(employee)}
-                                className="text-blue-600 hover:text-blue-900"
-                                title="Editar"
-                              >
-                                <PencilIcon className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteEmployee(employee.numero_empleado)}
-                                className="text-red-600 hover:text-red-900"
-                                title="Eliminar"
-                              >
-                                <TrashIcon className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                
-                {/* Controles de paginación para empleados */}
-                <PaginationControls
-                  currentPage={currentEmployeesPage}
-                  totalPages={totalEmployeesPages}
-                  onPageChange={(page) => setCurrentEmployeesPage(page)}
-                  dataLength={employees.length}
-                />
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Sección de Asistencias */}
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Registros de Asistencia</h2>
-          <div className="text-sm text-gray-600">
-            Filtros y exportación
-          </div>
-        </div>
-
-        {/* Filtros y Acciones */}
+        {/* ============ SECCIÓN: TABLA SEMANAL CON FILTRO POR SEMANAS ============ */}
         <div className="mb-8">
-          <form onSubmit={applyFilters} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por número, nombre, área o departamento..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="input-field pl-10"
-                  disabled={loading}
-                />
-              </div>
-              
-              {/* REEMPLAZA ESTE INPUT DATE POR UN SELECT */}
-              <div className="relative">
-                <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <div className="flex justify-between items-center mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+                <CalendarDaysIcon className="w-6 h-6 mr-2 text-indigo-600" />
+                Reporte Semanal de Asistencias
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Semana {selectedWeek}: {weekRange.start} al {weekRange.end}
+              </p>
+            </div>
+            <div className="flex items-center space-x-4">
+              {/* SELECTOR DE SEMANAS */}
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Seleccionar semana:
+                </label>
                 <select
-                  value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value)}
-                  className="input-field pl-10"
-                  disabled={loading || loadingDates}
+                  value={selectedWeek}
+                  onChange={(e) => handleWeekChange(parseInt(e.target.value))}
+                  disabled={weeklyLoading}
+                  className="px-3 py-2 border text-gray-800 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                 >
-                  <option value="">Todas las fechas</option>
-                  {availableDates.map((fecha) => (
-                    <option key={fecha.valor} value={fecha.valor}>
-                      {fecha.texto} ({fecha.registros} registros)
+                  {availableWeeks.map((week) => (
+                    <option key={week.numero} value={week.numero}>
+                      Semana {week.numero} ({week.inicio} - {week.fin})
                     </option>
                   ))}
-                  {availableDates.length === 0 && !loadingDates && (
-                    <option value="" disabled>No hay fechas disponibles</option>
-                  )}
-                  {loadingDates && (
-                    <option value="" disabled>Cargando fechas...</option>
-                  )}
                 </select>
               </div>
-              {/* 
-              <div>
+              
+              <div className="flex gap-3" ref={exportWeeklyMenuRef}>
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      const menu = document.getElementById('export-weekly-menu');
+                      if (menu) {
+                        menu.classList.toggle('hidden');
+                      }
+                    }}
+                    disabled={weeklyData.length === 0}
+                    className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200 disabled:opacity-50"
+                  >
+                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+                    Exportar
+                    <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {/* Menú desplegable de exportación semanal - CORREGIDO */}
+                  <div id="export-weekly-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                    <div className="py-1" role="menu">
+                      <button
+                        onClick={() => {
+                          exportWeeklyToExcel();
+                          const menu = document.getElementById('export-weekly-menu');
+                          if (menu) menu.classList.add('hidden');
+                        }}
+                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        role="menuitem"
+                      >
+                        <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Exportar Excel (con observaciones)
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportWeeklyToPDF();
+                          const menu = document.getElementById('export-weekly-menu');
+                          if (menu) menu.classList.add('hidden');
+                        }}
+                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        role="menuitem"
+                      >
+                        <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Exportar PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
                 <button
-                  type="submit"
-                  disabled={loading || refreshing}
-                  className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors duration-200 font-medium disabled:opacity-50"
+                  onClick={() => {
+                    const weekRange = getWeekRangeByNumber(selectedWeek);
+                    fetchWeeklyData(weekRange.start, weekRange.end);
+                  }}
+                  disabled={weeklyLoading}
+                  className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
                 >
-                  {loading ? 'Buscando...' : 'Aplicar Filtros'}
+                  <ArrowPathIcon className={`w-4 h-4 mr-2 ${weeklyLoading ? 'animate-spin' : ''}`} />
+                  Actualizar
                 </button>
               </div>
-              */}
+            </div>
+          </div>
+
+          {/* Estadísticas de la semana */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-xl shadow p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-blue-100 p-3 rounded-lg">
+                  <UsersIcon className="w-6 h-6 text-blue-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Empleados</p>
+                  <p className="text-2xl font-bold text-gray-900">{weekStats.totalEmpleados}</p>
+                </div>
+              </div>
             </div>
             
-            <div className="flex gap-3" ref={exportAttendanceMenuRef}>
-              <button
-                type="button"
-                onClick={clearFilters}
-                disabled={loading || refreshing}
-                className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors duration-200 font-medium disabled:opacity-50"
-              >
-                Limpiar Filtros
-              </button>
-              
+            <div className="bg-white rounded-xl shadow p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-green-100 p-3 rounded-lg">
+                  <CheckCircleIcon className="w-6 h-6 text-green-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Días Presentes</p>
+                  <p className="text-2xl font-bold text-gray-900">{weekStats.totalPresentes}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-red-100 p-3 rounded-lg">
+                  <XCircleIcon className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Faltas Reales</p>
+                  <p className="text-2xl font-bold text-gray-900">{weekStats.totalFaltas}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-indigo-100 p-3 rounded-lg">
+                  <ChartBarIcon className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">% Asistencia</p>
+                  <p className="text-2xl font-bold text-gray-900">{weekStats.porcentajeAsistencia}%</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabla Semanal */}
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    Asistencias por Semana
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Semana {selectedWeek}: {weekRange.start} al {weekRange.end}
+                  </p>
+                </div>
+                <div className="text-sm text-gray-500">
+                  <CircleStackIcon className="w-4 h-4 inline mr-1" />
+                  Total empleados: {weeklyData.length}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4">
+              {weeklyLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="mt-2 text-gray-600">Cargando datos semanales...</p>
+                </div>
+              ) : weeklyData.length === 0 ? (
+                <div className="text-center py-8">
+                  <CalendarDaysIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600">No hay datos para esta semana</p>
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Nombre
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Área
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Departamento
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Lunes
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Martes
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Miércoles
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Jueves
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Viernes
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Faltas
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {paginatedWeeklyData.map((row, index) => {
+                          // Función para renderizar cada celda de día
+                          const renderDayCell = (dayName) => {
+                            const valor = row[dayName]; // 'X' o ''
+                            const esFuturo = row.esFuturo?.[dayName]; // true/false
+                            const esInactivo = row.esInactivo?.[dayName]; // true/false para 5/01/2026
+                            
+                            // Día futuro
+                            if (esFuturo) {
+                              return (
+                                <div className="flex justify-center">
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
+                                    title="Día futuro (no cuenta como falta)"
+                                  >
+                                    <ClockIcon className="w-4 h-4 text-gray-400" />
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            // Día inactivo (5 de enero de 2026)
+                            if (esInactivo) {
+                              return (
+                                <div className="flex justify-center">
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
+                                    title="Sistema no activo (no cuenta como falta)"
+                                  >
+                                    <span className="text-xs text-gray-500">-</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            // Día pasado - mostrar asistencia real
+                            return (
+                              <div className="flex justify-center">
+                                {valor === 'X' ? (
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-green-100 border border-green-300 flex items-center justify-center"
+                                    title="Asistió"
+                                  >
+                                    <CheckIcon className="w-4 h-4 text-green-600" />
+                                  </div>
+                                ) : (
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-red-100 border border-red-300 flex items-center justify-center"
+                                    title="Ausente (falta)"
+                                  >
+                                    <XMarkIcon className="w-4 h-4 text-red-600" />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          };
+                          
+                          return (
+                            <tr key={index} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900">{row.nombre}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">{row.area}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900">{row.departamento || '-'}</div>
+                              </td>
+                              
+                              {/* Lunes */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('lunes')}
+                              </td>
+                              
+                              {/* Martes */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('martes')}
+                              </td>
+                              
+                              {/* Miércoles */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('miercoles')}
+                              </td>
+                              
+                              {/* Jueves */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('jueves')}
+                              </td>
+                              
+                              {/* Viernes */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('viernes')}
+                              </td>
+                              
+                              {/* Faltas reales */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex justify-center">
+                                  <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                                    row.faltas > 0 
+                                      ? 'bg-red-100 text-red-800 border border-red-300' 
+                                      : 'bg-green-100 text-green-800 border border-green-300'
+                                  }`}>
+                                    {row.faltas}
+                                  </span>
+                                </div>
+                              </td>
+                              
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Controles de paginación para tabla semanal */}
+                  <PaginationControls
+                    currentPage={currentWeeklyPage}
+                    totalPages={totalWeeklyPages}
+                    onPageChange={(page) => setCurrentWeeklyPage(page)}
+                    dataLength={weeklyData.length}
+                  />
+                </>
+              )}
+            </div>
+            
+            {/* Resumen y leyenda */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-1">
+                    <div className="w-4 h-4 rounded-full bg-green-100 border border-green-300 flex items-center justify-center">
+                      <CheckIcon className="w-3 h-3 text-green-600" />
+                    </div>
+                    <span className="text-xs">Asistió</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-4 h-4 rounded-full bg-red-100 border border-red-300 flex items-center justify-center">
+                      <XMarkIcon className="w-3 h-3 text-red-600" />
+                    </div>
+                    <span className="text-xs">Ausente</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
+                      <ClockIcon className="w-3 h-3 text-gray-400" />
+                    </div>
+                    <span className="text-xs">Futuro</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
+                      <span className="text-xs text-gray-500">-</span>
+                    </div>
+                    <span className="text-xs">Inactivo</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ============ SECCIÓN: GESTIÓN DE EMPLEADOS ============ */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+              <UserGroupIcon className="w-6 h-6 mr-2 text-blue-600" />
+              Gestión de Empleados
+            </h2>
+            <div className="flex gap-3" ref={exportEmployeesMenuRef}>
               <div className="relative">
                 <button
-                  type="button"
                   onClick={() => {
-                    const menu = document.getElementById('export-attendance-menu');
+                    const menu = document.getElementById('export-employees-menu');
                     if (menu) {
                       menu.classList.toggle('hidden');
                     }
                   }}
-                  disabled={loading || filteredData.length === 0}
-                  className="flex items-center px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50"
+                  disabled={employees.length === 0}
+                  className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
                 >
-                  <ArrowDownTrayIcon className="w-5 h-5 mr-2" />
-                  Exportar
+                  <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+                  Exportar Empleados
                   <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 
-                {/* Menú desplegable de exportación */}
-                <div id="export-attendance-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                {/* Menú desplegable de exportación para empleados - CORREGIDO */}
+                <div id="export-employees-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
                   <div className="py-1" role="menu">
                     <button
                       onClick={() => {
-                        exportAllToCSV();
-                        const menu = document.getElementById('export-attendance-menu');
+                        exportEmployeesToExcel();
+                        const menu = document.getElementById('export-employees-menu');
                         if (menu) menu.classList.add('hidden');
                       }}
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                       role="menuitem"
                     >
-                      <DocumentTextIcon className="w-4 h-4 mr-2 text-green-600" />
-                      Exportar CSV
+                      <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Exportar Excel
                     </button>
                     <button
                       onClick={() => {
-                        exportAllToPDF();
-                        const menu = document.getElementById('export-attendance-menu');
+                        exportEmployeesToPDF();
+                        const menu = document.getElementById('export-employees-menu');
                         if (menu) menu.classList.add('hidden');
                       }}
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -3544,152 +3903,537 @@ const applyFilters = async (e) => {
                   </div>
                 </div>
               </div>
+              
+              <button
+                onClick={() => setShowEmployeeForm(true)}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+              >
+                <UserPlusIcon className="w-4 h-4 mr-2" />
+                Nuevo Empleado
+              </button>
             </div>
-          </form>
-          
-          {/* Información adicional sobre el filtro */}
-          {dateFilter && (
-            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          </div>
+
+          {/* Formulario de Empleado (Modal) */}
+          {showEmployeeForm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-6">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold text-gray-800">
+                      {employeeForm.isEditing ? 'Editar Empleado' : 'Nuevo Empleado'}
+                    </h3>
+                    <button
+                      onClick={resetEmployeeForm}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <XMarkIcon className="w-6 h-6" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número de Empleado *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          name="numero_empleado"
+                          value={employeeForm.numero_empleado}
+                          onChange={handleEmployeeFormChange}
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                            formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
+                          }`}
+                          placeholder={employeeForm.isEditing ? 
+                            "Número actual: " + employeeForm.originalId : 
+                            "Ingresa el número (ej: 1, 2, 3...)"}
+                          disabled={false}
+                        />
+                        {!employeeForm.isEditing && (
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      {formErrors.numero_empleado && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
+                      )}
+                      <p className="mt-1 text-xs text-gray-500">
+                        {employeeForm.isEditing ? 
+                          "Puedes cambiar el número si es necesario" : 
+                          "Ingresa manualmente el número del empleado"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nombre Completo *
+                      </label>
+                      <input
+                        type="text"
+                        name="nombre_completo"
+                        value={employeeForm.nombre_completo}
+                        onChange={handleEmployeeFormChange}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                          formErrors.nombre_completo ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                        placeholder="Ej: Juan Pérez"
+                      />
+                      {formErrors.nombre_completo && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.nombre_completo}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Área/Departamento *
+                      </label>
+                      <input
+                        type="text"
+                        name="area"
+                        value={employeeForm.area}
+                        onChange={handleEmployeeFormChange}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                          formErrors.area ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                        placeholder="Ej: Ventas, IT, RRHH"
+                      />
+                      {formErrors.area && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.area}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Departamento *
+                      </label>
+                      <input
+                        type="text"
+                        name="departamento"
+                        value={employeeForm.departamento}
+                        onChange={handleEmployeeFormChange}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                          formErrors.departamento ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                        placeholder="Ej: Ventas, Producción, Administración"
+                      />
+                      {formErrors.departamento && (
+                        <p className="mt-1 text-sm text-red-600">{formErrors.departamento}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Estado
+                      </label>
+                      <select
+                        name="activo"
+                        value={employeeForm.activo}
+                        onChange={handleEmployeeFormChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="Sí">Activo</option>
+                        <option value="No">Inactivo</option>
+                      </select>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                      <button
+                        type="submit"
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                      >
+                        <CheckIcon className="w-4 h-4 mr-2" />
+                        {employeeForm.isEditing ? 'Actualizar' : 'Guardar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetEmployeeForm}
+                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tabla de Empleados */}
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-sm font-medium text-blue-800">
-                    Filtro activo: <span className="font-bold">{dateFilter}</span>
-                  </span>
-                  {availableDates.find(f => f.valor === dateFilter) && (
-                    <span className="ml-3 text-sm text-blue-600">
-                      ({availableDates.find(f => f.valor === dateFilter).registros} registros)
-                    </span>
-                  )}
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    Lista de Empleados
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {employees.length} empleados registrados
+                  </p>
                 </div>
-                <button
-                  onClick={() => {
-                    // Botón para actualizar la lista de fechas
-                    fetchAvailableDates();
-                    fetchDataFromDB();
-                  }}
-                  className="flex items-center text-sm text-blue-600 hover:text-blue-800"
-                  disabled={loadingDates}
-                >
-                  <ArrowPathIcon className={`w-4 h-4 mr-1 ${loadingDates ? 'animate-spin' : ''}`} />
-                  {loadingDates ? 'Actualizando...' : 'Actualizar'}
-                </button>
               </div>
             </div>
-          )}
+
+            <div className="p-4">
+              {employeesLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="mt-2 text-gray-600">Cargando empleados...</p>
+                </div>
+              ) : employees.length === 0 ? (
+                <div className="text-center py-8">
+                  <UserGroupIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600">No hay empleados registrados</p>
+                  <button
+                    onClick={() => setShowEmployeeForm(true)}
+                    className="mt-3 px-4 py-2 text-blue-600 hover:text-blue-800"
+                  >
+                    Agregar primer empleado
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Número
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Nombre
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Área
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Departamento
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Estado
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Acciones
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {paginatedEmployeesData.map((employee) => (
+                          <tr key={employee.numero_empleado} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">
+                                {employee.numero_empleado}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-sm text-gray-900">{employee.nombre_completo}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">{employee.area}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900">{employee.departamento || '-'}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                employee.activo 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {employee.activo ? 'Activo' : 'Inactivo'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleEditEmployee(employee)}
+                                  className="text-blue-600 hover:text-blue-900"
+                                  title="Editar"
+                                >
+                                  <PencilIcon className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteEmployee(employee.numero_empleado)}
+                                  className="text-red-600 hover:text-red-900"
+                                  title="Eliminar"
+                                >
+                                  <TrashIcon className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Controles de paginación para empleados */}
+                  <PaginationControls
+                    currentPage={currentEmployeesPage}
+                    totalPages={totalEmployeesPages}
+                    onPageChange={(page) => setCurrentEmployeesPage(page)}
+                    dataLength={employees.length}
+                  />
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Tabla de Asistencias */}
-        <div className="glass-card rounded-xl overflow-hidden shadow-lg">
-          <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">
-                  Historial de Asistencias
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Datos en tiempo real desde MongoDB
-                  <span className="ml-2 text-gray-500">
-                    • {filteredData.length} registros encontrados
-                  </span>
-                </p>
-              </div>
-              <div className="mt-2 sm:mt-0">
-                <div className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700">
-                  <CircleStackIcon className="w-4 h-4 mr-1" />
-                  MongoDB
-                </div>
-              </div>
+        {/* ============ SECCIÓN: REGISTROS DE ASISTENCIA ============ */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">Registros de Asistencia</h2>
+            <div className="text-sm text-gray-600">
+              Filtros y exportación
             </div>
           </div>
-          
-          <div className="p-4 sm:p-6">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-12">
+
+          {/* Filtros y Acciones */}
+          <div className="mb-8">
+            <form onSubmit={applyFilters} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="relative">
-                  <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4"></div>
-                  <CircleStackIcon className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-blue-600" />
+                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por número, nombre, área o departamento..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="input-field pl-10"
+                    disabled={loading}
+                  />
                 </div>
-                <p className="text-gray-600 mt-4">Conectando con MongoDB...</p>
-                <p className="text-sm text-gray-500 mt-2">Obteniendo datos en tiempo real</p>
-              </div>
-            ) : dbStatus === 'error' ? (
-              <div className="text-center py-12">
-                <ExclamationCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Error de conexión con MongoDB
-                </h3>
-                <p className="text-gray-600 mb-4">
-                  No se pudieron cargar los datos desde la base de datos.
-                </p>
-                <button
-                  onClick={fetchDataFromDB}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Reintentar conexión
-                </button>
-              </div>
-            ) : filteredData.length === 0 ? (
-              <div className="text-center py-12">
-                <DocumentTextIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  No hay registros de asistencia
-                </h3>
-                <p className="text-gray-600">
-                  No se encontraron registros con los filtros aplicados.
-                </p>
-                <button
-                  onClick={clearFilters}
-                  className="mt-4 px-4 py-2 text-blue-600 hover:text-blue-800"
-                >
-                  Ver todos los registros
-                </button>
-              </div>
-            ) : (
-              <>
-                <AdminTable 
-                  attendanceData={paginatedAttendanceData} 
-                  loading={false} 
-                />
                 
-                {/* Controles de paginación para asistencias */}
-                <PaginationControls
-                  currentPage={currentAttendancePage}
-                  totalPages={totalAttendancePages}
-                  onPageChange={(page) => setCurrentAttendancePage(page)}
-                  dataLength={filteredData.length}
-                />
-              </>
+                {/* Selector de fechas */}
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <select
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                    className="input-field pl-10"
+                    disabled={loading || loadingDates}
+                  >
+                    <option value="">Todas las fechas</option>
+                    {availableDates.map((fecha) => (
+                      <option key={fecha.valor} value={fecha.valor}>
+                        {fecha.texto} ({fecha.registros} registros)
+                      </option>
+                    ))}
+                    {availableDates.length === 0 && !loadingDates && (
+                      <option value="" disabled>No hay fechas disponibles</option>
+                    )}
+                    {loadingDates && (
+                      <option value="" disabled>Cargando fechas...</option>
+                    )}
+                  </select>
+                </div>
+                
+                <div>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    disabled={loading || refreshing}
+                    className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors duration-200 font-medium disabled:opacity-50"
+                  >
+                    Limpiar Filtros
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex gap-3" ref={exportAttendanceMenuRef}>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const menu = document.getElementById('export-attendance-menu');
+                      if (menu) {
+                        menu.classList.toggle('hidden');
+                      }
+                    }}
+                    disabled={loading || filteredData.length === 0}
+                    className="flex items-center px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50"
+                  >
+                    <ArrowDownTrayIcon className="w-5 h-5 mr-2" />
+                    Exportar
+                    <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {/* Menú desplegable de exportación para registros - CORREGIDO */}
+                  <div id="export-attendance-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                    <div className="py-1" role="menu">
+                      <button
+                        onClick={() => {
+                          exportAllToExcel();
+                          const menu = document.getElementById('export-attendance-menu');
+                          if (menu) menu.classList.add('hidden');
+                        }}
+                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        role="menuitem"
+                      >
+                        <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Exportar Excel
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportAttendanceToPDF();
+                          const menu = document.getElementById('export-attendance-menu');
+                          if (menu) menu.classList.add('hidden');
+                        }}
+                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        role="menuitem"
+                      >
+                        <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Exportar PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </form>
+            
+            {/* Información adicional sobre el filtro */}
+            {dateFilter && (
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-medium text-blue-800">
+                      Filtro activo: <span className="font-bold">{dateFilter}</span>
+                    </span>
+                    {availableDates.find(f => f.valor === dateFilter) && (
+                      <span className="ml-3 text-sm text-blue-600">
+                        ({availableDates.find(f => f.valor === dateFilter).registros} registros)
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      fetchAvailableDates();
+                      fetchDataFromDB();
+                    }}
+                    className="flex items-center text-sm text-blue-600 hover:text-blue-800"
+                    disabled={loadingDates}
+                  >
+                    <ArrowPathIcon className={`w-4 h-4 mr-1 ${loadingDates ? 'animate-spin' : ''}`} />
+                    {loadingDates ? 'Actualizando...' : 'Actualizar'}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
-          
-          {/* Footer de la tabla */}
-          {!loading && filteredData.length > 0 && (
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
-                <div className="mb-2 sm:mb-0">
-                  Mostrando <span className="font-medium">{paginatedAttendanceData.length}</span> de <span className="font-medium">{filteredData.length}</span> registros
-                  {searchTerm && (
-                    <span className="ml-2">
-                      para "<span className="font-medium">{searchTerm}</span>"
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center">
-                  <CircleStackIcon className="w-4 h-4 mr-1" />
-                  <span>Sincronizado con MongoDB</span>
-                  {lastUpdated && (
+
+          {/* Tabla de Asistencias */}
+          <div className="glass-card rounded-xl overflow-hidden shadow-lg">
+            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-800">
+                    Historial de Asistencias
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Datos en tiempo real
                     <span className="ml-2 text-gray-500">
-                      • Actualizado: {formatDateTime(lastUpdated)}
+                      • {filteredData.length} registros encontrados
                     </span>
-                  )}
+                  </p>
                 </div>
               </div>
             </div>
-          )}
+            
+            <div className="p-4 sm:p-6">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="relative">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4"></div>
+                    <CircleStackIcon className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-blue-600" />
+                  </div>
+                  <p className="text-gray-600 mt-4">Conectando con MongoDB...</p>
+                  <p className="text-sm text-gray-500 mt-2">Obteniendo datos en tiempo real</p>
+                </div>
+              ) : dbStatus === 'error' ? (
+                <div className="text-center py-12">
+                  <ExclamationCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    Error de conexión con MongoDB
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    No se pudieron cargar los datos desde la base de datos.
+                  </p>
+                  <button
+                    onClick={fetchDataFromDB}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Reintentar conexión
+                  </button>
+                </div>
+              ) : filteredData.length === 0 ? (
+                <div className="text-center py-12">
+                  <DocumentTextIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    No hay registros de asistencia
+                  </h3>
+                  <p className="text-gray-600">
+                    No se encontraron registros con los filtros aplicados.
+                  </p>
+                  <button
+                    onClick={clearFilters}
+                    className="mt-4 px-4 py-2 text-blue-600 hover:text-blue-800"
+                  >
+                    Ver todos los registros
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <AdminTable 
+                    attendanceData={paginatedAttendanceData} 
+                    loading={false} 
+                  />
+                  
+                  {/* Controles de paginación para asistencias */}
+                  <PaginationControls
+                    currentPage={currentAttendancePage}
+                    totalPages={totalAttendancePages}
+                    onPageChange={(page) => setCurrentAttendancePage(page)}
+                    dataLength={filteredData.length}
+                  />
+                </>
+              )}
+            </div>
+            
+            {/* Footer de la tabla */}
+            {!loading && filteredData.length > 0 && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
+                  <div className="mb-2 sm:mb-0">
+                    Mostrando <span className="font-medium">{paginatedAttendanceData.length}</span> de <span className="font-medium">{filteredData.length}</span> registros
+                    {searchTerm && (
+                      <span className="ml-2">
+                        para "<span className="font-medium">{searchTerm}</span>"
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center">
+                    {lastUpdated && (
+                      <span className="ml-2 text-gray-500">
+                        • Actualizado: {formatDateTime(lastUpdated)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
-    </div>
-    
   );
 }
