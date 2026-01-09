@@ -431,65 +431,98 @@ export default function AdminPage() {
   };
 
  // Función para cargar datos semanales
-const fetchWeeklyData = async (startDate, endDate) => {
-  setWeeklyLoading(true);
-  try {
-    console.log('📅 Solicitando datos semanales para:', { startDate, endDate });
-    
-    const response = await fetch(`/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`, {
-      headers: {
-        'Cache-Control': 'no-cache'
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log('✅ Datos semanales recibidos:', data);
-    console.log('📊 Estructura del primer elemento:', data[0] ? Object.keys(data[0]) : 'No hay datos');
-    
-    if (data.length > 0) {
-      console.log('📝 Ejemplo de datos recibidos:', {
-        nombre: data[0].nombre,
-        area: data[0].area,
-        lunes: data[0].lunes,
-        martes: data[0].martes,
-        faltas: data[0].faltas
+  const fetchWeeklyData = async (startDate, endDate) => {
+    setWeeklyLoading(true);
+    try {
+      console.log('📅 Solicitando datos semanales para:', { startDate, endDate });
+      
+      const response = await fetch(`/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`, {
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
       });
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Datos semanales recibidos:', data);
+      
+      if (data.length > 0) {
+        console.log('📝 Ejemplo de datos recibidos:', {
+          nombre: data[0].nombre,
+          area: data[0].area,
+          departamento: data[0].departamento, // Verificar si viene departamento
+          lunes: data[0].lunes,
+          martes: data[0].martes,
+          faltas: data[0].faltas
+        });
+      }
+      
+      // Si los datos no vienen con departamento, combinarlos con empleados
+      let dataConDepartamento = data;
+      
+      // Verificar si los datos ya traen departamento
+      if (data.length > 0 && !data[0].departamento) {
+        console.log('⚠️ Los datos semanales no incluyen departamento, combinando con empleados...');
+        
+        // Obtener empleados para combinar con departamento
+        const employeesResponse = await fetch('/api/empleados');
+        if (employeesResponse.ok) {
+          const empleados = await employeesResponse.json();
+          
+          // Crear mapa de empleados por nombre
+          const employeesMap = {};
+          empleados.forEach(emp => {
+            employeesMap[emp.nombre_completo] = {
+              departamento: emp.departamento || '',
+              numero_empleado: emp.numero_empleado || ''
+            };
+          });
+          
+          // Combinar datos
+          dataConDepartamento = data.map(item => {
+            const empleadoInfo = employeesMap[item.nombre] || {};
+            return {
+              ...item,
+              departamento: empleadoInfo.departamento || item.departamento || '',
+              numero_empleado: empleadoInfo.numero_empleado || item.numero_empleado || ''
+            };
+          });
+        }
+      }
+      
+      // Combinar con observaciones
+      const dataConObservaciones = dataConDepartamento.map(item => ({
+        ...item,
+        observacion: observaciones[item.id] || ''
+      }));
+      
+      // Filtrar solo empleados activos (si hay empleados cargados)
+      let filteredData = dataConObservaciones;
+      if (employees.length > 0) {
+        filteredData = dataConObservaciones.filter(item => 
+          employees.some(emp => emp.nombre_completo === item.nombre && emp.activo)
+        );
+        console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
+      }
+      
+      // Calcular estadísticas de la semana
+      const estadisticas = calcularEstadisticasSemana(filteredData);
+      console.log('📊 Estadísticas calculadas:', estadisticas);
+      setWeekStats(estadisticas);
+      
+      setWeeklyData(filteredData);
+      
+    } catch (error) {
+      console.error('❌ Error cargando datos semanales:', error);
+      alert('Error al cargar datos semanales: ' + error.message);
+      setWeeklyData([]);
+    } finally {
+      setWeeklyLoading(false);
     }
-    
-    // Combinar con observaciones
-    const dataConObservaciones = data.map(item => ({
-      ...item,
-      observacion: observaciones[item.id] || '' // Agregar observaciones si existen
-    }));
-    
-    // Filtrar solo empleados activos (si hay empleados cargados)
-    let filteredData = dataConObservaciones;
-    if (employees.length > 0) {
-      filteredData = dataConObservaciones.filter(item => 
-        employees.some(emp => emp.nombre_completo === item.nombre && emp.activo)
-      );
-      console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
-    }
-    
-    // Calcular estadísticas de la semana
-    const estadisticas = calcularEstadisticasSemana(filteredData);
-    console.log('📊 Estadísticas calculadas:', estadisticas);
-    setWeekStats(estadisticas);
-    
-    setWeeklyData(filteredData);
-    
-  } catch (error) {
-    console.error('❌ Error cargando datos semanales:', error);
-    alert('Error al cargar datos semanales: ' + error.message);
-    setWeeklyData([]);
-  } finally {
-    setWeeklyLoading(false);
-  }
-};
+  };
 
   // Función para calcular estadísticas de la semana
   const calcularEstadisticasSemana = (datos) => {
@@ -647,16 +680,36 @@ const fetchWeeklyData = async (startDate, endDate) => {
         const attendanceData = await attendanceResponse.json();
         console.log(`📝 ${attendanceData.length} registros cargados`);
         
-        const processedData = attendanceData.map(record => ({
-          ...record,
-          employeeId: record.numero_empleado || '',
-          employeeName: record.nombre_empleado || '',
-          date: record.fecha || '',
-          time: record.hora || '',
-          timestamp: record.marca_tiempo || new Date().toISOString(),
-          department: record.area_empleado || '',
-          type: record.tipo_registro || 'entrada'
-        }));
+        // Obtener empleados para combinar con departamento
+        const employeesResponse = await fetch('/api/empleados');
+        let employeesMap = {};
+        
+        if (employeesResponse.ok) {
+          const empleados = await employeesResponse.json();
+          // Crear mapa de empleados por número
+          empleados.forEach(emp => {
+            employeesMap[emp.numero_empleado] = {
+              departamento: emp.departamento || '',
+              nombre_completo: emp.nombre_completo || ''
+            };
+          });
+        }
+        
+        const processedData = attendanceData.map(record => {
+          const empleadoInfo = employeesMap[record.numero_empleado] || {};
+          
+          return {
+            ...record,
+            employeeId: record.numero_empleado || '',
+            employeeName: record.nombre_empleado || empleadoInfo.nombre_completo || '',
+            date: record.fecha || '',
+            time: record.hora || '',
+            timestamp: record.marca_tiempo || new Date().toISOString(),
+            department: record.area_empleado || '',
+            departamento: empleadoInfo.departamento || record.departamento || '', // Añadir departamento
+            type: record.tipo_registro || 'entrada'
+          };
+        });
         
         setAttendanceData(processedData);
       }
@@ -2935,7 +2988,7 @@ const exportAttendanceToPDF = async () => {
                 Área
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Departamento
+                Puesto
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Fecha
@@ -3319,7 +3372,7 @@ const exportAttendanceToPDF = async () => {
                             Área
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Departamento
+                            Puesto
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Asistió Hoy
@@ -3661,7 +3714,7 @@ const exportAttendanceToPDF = async () => {
                             Área
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Departamento
+                            Puesto
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Lunes
@@ -3989,7 +4042,7 @@ const exportAttendanceToPDF = async () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Área/Departamento *
+                        Área/Puesto *
                       </label>
                       <input
                         type="text"
@@ -4008,7 +4061,7 @@ const exportAttendanceToPDF = async () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Departamento *
+                        Puesto *
                       </label>
                       <input
                         type="text"
@@ -4110,7 +4163,7 @@ const exportAttendanceToPDF = async () => {
                             Área
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Departamento
+                            Puesto
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Estado

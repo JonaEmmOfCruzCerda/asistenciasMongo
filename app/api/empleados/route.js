@@ -13,6 +13,8 @@ export async function GET(solicitud) {
     const { searchParams } = new URL(solicitud.url);
     const activo = searchParams.get('activo');
     const buscar = searchParams.get('buscar');
+    const departamento = searchParams.get('departamento');
+    const area = searchParams.get('area');
     
     let consulta = {};
     
@@ -21,29 +23,48 @@ export async function GET(solicitud) {
       consulta.activo = activo === 'true';
     }
     
+    // Filtrar por departamento
+    if (departamento) {
+      consulta.departamento = { $regex: departamento, $options: 'i' };
+    }
+    
+    // Filtrar por área
+    if (area) {
+      consulta.area = { $regex: area, $options: 'i' };
+    }
+    
     // Búsqueda general
     if (buscar) {
       consulta.$or = [
         { nombre_completo: { $regex: buscar, $options: 'i' } },
         { numero_empleado: { $regex: buscar, $options: 'i' } },
-        { area: { $regex: buscar, $options: 'i' } }
+        { area: { $regex: buscar, $options: 'i' } },
+        { departamento: { $regex: buscar, $options: 'i' } }
       ];
     }
 
-    const empleados = await Empleado.find(consulta).sort({ numero_empleado: 1 }); // Ordenar por número ascendente
+    const empleados = await Empleado.find(consulta)
+      .sort({ 
+        departamento: 1,
+        numero_empleado: 1 
+      });
+    
+    console.log(`✅ ${empleados.length} empleados encontrados`);
     
     return NextResponse.json(empleados);
     
   } catch (error) {
     console.error('❌ Error en GET /api/empleados:', error);
     return NextResponse.json(
-      { error: 'Error al obtener empleados' },
+      { error: 'Error al obtener empleados', detalles: error.message },
       { status: 500 }
     );
   }
 }
-// En /app/api/empleados/route.js, MODIFICA la lógica:
 
+/**
+ * POST → Crear nuevo empleado
+ */
 export async function POST(solicitud) {
   try {
     await conectarDB();
@@ -51,16 +72,26 @@ export async function POST(solicitud) {
     const datos = await solicitud.json();
     console.log('📥 Datos recibidos para nuevo empleado:', datos);
     
-    // Aceptar numero_empleado si viene del frontend
-    const { numero_empleado, nombre_completo, area, activo = true } = datos;
+    // Extraer todos los campos incluyendo departamento
+    const { 
+      numero_empleado, 
+      nombre_completo, 
+      area, 
+      departamento, 
+      activo = true 
+    } = datos;
 
-    // Validar datos
-    if (!nombre_completo || !area) {
+    // Validar datos completos incluyendo departamento
+    if (!nombre_completo || !area || !departamento) {
       return NextResponse.json(
         { 
           error: 'Datos incompletos',
-          campos_requeridos: ['nombre_completo', 'area'],
-          datos_recibidos: { nombre_completo, area }
+          campos_requeridos: ['nombre_completo', 'area', 'departamento'],
+          datos_recibidos: { 
+            nombre_completo: !!nombre_completo,
+            area: !!area,
+            departamento: !!departamento
+          }
         },
         { status: 400 }
       );
@@ -80,6 +111,13 @@ export async function POST(solicitud) {
         );
       }
       
+      if (parseInt(numeroIngresado) <= 0) {
+        return NextResponse.json(
+          { error: 'El número de empleado debe ser mayor a 0' },
+          { status: 400 }
+        );
+      }
+      
       // Verificar que no exista ya
       const existe = await Empleado.findOne({ numero_empleado: numeroIngresado });
       if (existe) {
@@ -93,7 +131,7 @@ export async function POST(solicitud) {
       console.log('🔢 Usando número ingresado manualmente:', siguienteNumero);
     } else {
       // Si no envió número, generar automáticamente
-      // LÓGICA: Buscar el primer hueco disponible empezando desde 1
+      // Buscar el primer hueco disponible empezando desde 1
       const empleados = await Empleado.find({
         numero_empleado: { $regex: /^\d+$/ } // Solo números
       }).sort({ numero_empleado: 1 });
@@ -130,29 +168,34 @@ export async function POST(solicitud) {
       console.log('🔢 Número generado automáticamente:', siguienteNumero);
     }
     
-    console.log('📝 Datos a guardar:', {
+    // Preparar datos del empleado
+    const datosEmpleado = {
       numero_empleado: siguienteNumero,
       nombre_completo: nombre_completo.trim(),
       area: area.trim(),
-      activo: activo === 'Sí' || activo === true || activo === 'true'
-    });
+      departamento: departamento.trim(), // Incluir departamento
+      activo: activo === 'Sí' || activo === true || activo === 'true' || activo === '1'
+    };
+
+    console.log('📝 Datos a guardar:', datosEmpleado);
 
     // Crear el nuevo empleado
-    const nuevoEmpleado = await Empleado.create({
-      numero_empleado: siguienteNumero,
-      nombre_completo: nombre_completo.trim(),
-      area: area.trim(),
-      activo: activo === 'Sí' || activo === true || activo === 'true'
-    });
+    const nuevoEmpleado = await Empleado.create(datosEmpleado);
 
-    console.log('✅ Empleado creado exitosamente:', nuevoEmpleado._id);
+    console.log('✅ Empleado creado exitosamente:', {
+      id: nuevoEmpleado._id,
+      numero: nuevoEmpleado.numero_empleado,
+      nombre: nuevoEmpleado.nombre_completo,
+      area: nuevoEmpleado.area,
+      departamento: nuevoEmpleado.departamento
+    });
 
     return NextResponse.json({
       exito: true,
       mensaje: 'Empleado creado exitosamente',
       empleado: nuevoEmpleado,
       numero_generado: siguienteNumero
-    });
+    }, { status: 201 });
     
   } catch (error) {
     console.error('❌ Error en POST /api/empleados:', error);
@@ -179,13 +222,10 @@ export async function POST(solicitud) {
     );
   }
 }
+
 /**
  * PUT → Actualizar empleado
  */
-// En /app/api/empleados/route.js - Modificar el PUT:
-
-// En /app/api/empleados/route.js - Modificar el PUT:
-
 export async function PUT(solicitud) {
   try {
     await conectarDB();
@@ -193,11 +233,28 @@ export async function PUT(solicitud) {
     const datos = await solicitud.json();
     console.log('📥 Datos recibidos para actualizar empleado:', datos);
     
-    const { id, nombre_completo, area, activo, id_original } = datos;
+    // Extraer todos los campos incluyendo departamento
+    const { 
+      id, 
+      nombre_completo, 
+      area, 
+      departamento, 
+      activo, 
+      id_original 
+    } = datos;
 
-    if (!id || !nombre_completo || !area) {
+    // Validar datos completos incluyendo departamento
+    if (!id || !nombre_completo || !area || !departamento) {
       return NextResponse.json(
-        { error: 'ID, nombre y área son obligatorios' },
+        { 
+          error: 'Datos incompletos. ID, nombre, área y departamento son obligatorios',
+          datos_recibidos: {
+            id: !!id,
+            nombre_completo: !!nombre_completo,
+            area: !!area,
+            departamento: !!departamento
+          }
+        },
         { status: 400 }
       );
     }
@@ -219,11 +276,13 @@ export async function PUT(solicitud) {
       }
     }
 
+    // Preparar datos para actualización incluyendo departamento
     const datosActualizar = {
       numero_empleado: id, // Actualizar el número si cambió
       nombre_completo: nombre_completo.trim(),
       area: area.trim(),
-      activo: activo === 'Sí' || activo === true || activo === 'true',
+      departamento: departamento.trim(), // Incluir departamento
+      activo: activo === 'Sí' || activo === true || activo === 'true' || activo === '1',
       fecha_actualizacion: new Date()
     };
 
@@ -249,12 +308,13 @@ export async function PUT(solicitud) {
       // Eliminar el registro viejo
       await Empleado.deleteOne({ numero_empleado: idBusqueda });
       
-      // Crear nuevo registro con el nuevo número
+      // Crear nuevo registro con el nuevo número y todos los campos
       empleadoActualizado = await Empleado.create({
         numero_empleado: id,
         nombre_completo: nombre_completo.trim(),
         area: area.trim(),
-        activo: activo === 'Sí' || activo === true || activo === 'true',
+        departamento: departamento.trim(), // Incluir departamento
+        activo: activo === 'Sí' || activo === true || activo === 'true' || activo === '1',
         fecha_creacion: empleadoExistente.fecha_creacion, // Mantener fecha original
         fecha_actualizacion: new Date()
       });
@@ -266,8 +326,8 @@ export async function PUT(solicitud) {
         { numero_empleado: idBusqueda },
         datosActualizar,
         { 
-          new: true,
-          runValidators: true
+          new: true, // Retornar el documento actualizado
+          runValidators: true // Ejecutar validaciones del esquema
         }
       );
     }
@@ -280,7 +340,14 @@ export async function PUT(solicitud) {
       );
     }
 
-    console.log('✅ Empleado actualizado exitosamente:', empleadoActualizado);
+    console.log('✅ Empleado actualizado exitosamente:', {
+      numero_original: id_original,
+      numero_nuevo: empleadoActualizado.numero_empleado,
+      nombre: empleadoActualizado.nombre_completo,
+      area: empleadoActualizado.area,
+      departamento: empleadoActualizado.departamento,
+      activo: empleadoActualizado.activo
+    });
 
     return NextResponse.json({
       exito: true,
@@ -294,8 +361,19 @@ export async function PUT(solicitud) {
   } catch (error) {
     console.error('❌ Error en PUT /api/empleados:', error);
     console.error('📋 Detalles del error:', error.message);
+    
+    if (error.code === 11000) {
+      return NextResponse.json(
+        { error: 'El número de empleado ya está en uso' },
+        { status: 409 }
+      );
+    }
+    
     return NextResponse.json(
-      { error: 'Error al actualizar empleado: ' + error.message },
+      { 
+        error: 'Error al actualizar empleado',
+        detalles: error.message
+      },
       { status: 500 }
     );
   }
@@ -329,19 +407,86 @@ export async function DELETE(solicitud) {
       );
     }
 
+    console.log('🗑️ Empleado eliminado:', {
+      numero: empleadoEliminado.numero_empleado,
+      nombre: empleadoEliminado.nombre_completo
+    });
+
     return NextResponse.json({
       exito: true,
       mensaje: 'Empleado eliminado exitosamente',
       empleado: {
         numero_empleado: empleadoEliminado.numero_empleado,
-        nombre_completo: empleadoEliminado.nombre_completo
+        nombre_completo: empleadoEliminado.nombre_completo,
+        area: empleadoEliminado.area,
+        departamento: empleadoEliminado.departamento
       }
     });
     
   } catch (error) {
     console.error('❌ Error en DELETE /api/empleados:', error);
     return NextResponse.json(
-      { error: 'Error al eliminar empleado: ' + error.message },
+      { 
+        error: 'Error al eliminar empleado',
+        detalles: error.message
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH → Actualización parcial de empleado
+ */
+export async function PATCH(solicitud) {
+  try {
+    await conectarDB();
+    
+    const datos = await solicitud.json();
+    const { id } = datos;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID de empleado requerido' },
+        { status: 400 }
+      );
+    }
+
+    // Eliminar campos que no se deben actualizar directamente
+    delete datos.id;
+    delete datos._id;
+    delete datos.__v;
+    delete datos.fecha_creacion;
+    
+    // Agregar fecha de actualización
+    datos.fecha_actualizacion = new Date();
+
+    const empleadoActualizado = await Empleado.findOneAndUpdate(
+      { numero_empleado: id },
+      datos,
+      { 
+        new: true,
+        runValidators: true
+      }
+    );
+
+    if (!empleadoActualizado) {
+      return NextResponse.json(
+        { error: 'Empleado no encontrado' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      exito: true,
+      mensaje: 'Empleado actualizado parcialmente',
+      empleado: empleadoActualizado
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en PATCH /api/empleados:', error);
+    return NextResponse.json(
+      { error: 'Error al actualizar empleado: ' + error.message },
       { status: 500 }
     );
   }

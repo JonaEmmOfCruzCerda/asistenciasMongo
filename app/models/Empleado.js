@@ -24,7 +24,7 @@ const EsquemaEmpleado = new mongoose.Schema({
     trim: true
   },
   
-  departamento: { // NUEVO CAMPO
+  departamento: {
     type: String,
     required: [true, 'El departamento es requerido'],
     trim: true
