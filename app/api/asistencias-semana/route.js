@@ -50,18 +50,21 @@ function getWeekDates(startStr, endStr) {
   const dates = [];
 
   const dayNames = {
+    4: 'jueves',
+    5: 'viernes',
+    6: 'sabado',
+    0: 'domingo',
     1: 'lunes',
     2: 'martes',
     3: 'miercoles',
-    4: 'jueves',
-    5: 'viernes',
   };
 
   const current = new Date(start);
 
   while (current <= end) {
     const day = current.getDay();
-    if (day >= 1 && day <= 5) { // Lunes (1) a Viernes (5)
+
+    if ([4, 5, 1, 2, 3].includes(day)) { // Lunes (1) a Viernes (5)
       const fechaSinHora = new Date(
         current.getFullYear(),
         current.getMonth(),
@@ -72,6 +75,7 @@ function getWeekDates(startStr, endStr) {
         date: fechaSinHora,
         dateStr: formatDate(fechaSinHora),
         dayName: dayNames[day],
+        esFinDeSemana: [0, 6].includes(day),
       });
     }
     current.setDate(current.getDate() + 1);
@@ -129,17 +133,19 @@ export async function GET(req) {
     const data = empleados.map((emp) => {
       const dias = {};
 
-      // Inicializar todos los días de la semana
+      // Inicializar todos los días de la semana (jueves a miércoles)
       weekDates.forEach((wd) => {
         const fechaDia = wd.date;
         const esFuturo = isFutureDate(fechaDia);
         const esInactivo = es5Enero2026(fechaDia);
+        const esFinDeSemana = wd.esFinDeSemana; // Nuevo campo
         
         dias[wd.dayName] = {
           valor: '', // 'X' si asistió, '' si no
           fecha: wd.dateStr,
           esFuturo: esFuturo,
           esInactivo: esInactivo,
+          esFinDeSemana: esFinDeSemana, // Nuevo
         };
       });
 
@@ -161,7 +167,7 @@ export async function GET(req) {
           });
         });
 
-      // 🔥 CALCULAR FALTAS REALES (NO incluye días futuros ni 5/01/2026)
+      // 🔥 CALCULAR FALTAS REALES (NO incluye días futuros, 5/01/2026, ni fines de semana)
       let faltas = 0;
       let detallesFaltas = [];
       
@@ -169,7 +175,8 @@ export async function GET(req) {
         const esFaltaReal = (
           diaInfo.valor === '' && // No asistió
           !diaInfo.esFuturo &&    // No es día futuro
-          !diaInfo.esInactivo     // No es 5/01/2026
+          !diaInfo.esInactivo &&  // No es 5/01/2026
+          !diaInfo.esFinDeSemana  // No es sábado o domingo
         );
         
         if (esFaltaReal) {
@@ -178,23 +185,11 @@ export async function GET(req) {
         }
       });
 
-      // DEBUG para cada empleado (solo primeros 2 para no saturar)
-      if (emp.numero_empleado === empleados[0]?.numero_empleado || emp.numero_empleado === empleados[1]?.numero_empleado) {
-        console.log(`\n🔍 DEBUG - Empleado: ${emp.nombre_completo}`);
-        console.log(`   Número: ${emp.numero_empleado}`);
-        Object.entries(dias).forEach(([dia, info]) => {
-          console.log(`   ${dia}: fecha=${info.fecha}, asistió=${info.valor === 'X' ? 'Sí' : 'No'}, futuro=${info.esFuturo}, inactivo=${info.esInactivo}`);
-        });
-        console.log(`   Faltas calculadas: ${faltas}`);
-        if (detallesFaltas.length > 0) {
-          console.log(`   Días de falta: ${detallesFaltas.join(', ')}`);
-        }
-      }
-
       // Preparar datos para el frontend
       const fechas = {};
       const esFuturo = {};
       const esInactivo = {};
+      const esFinDeSemana = {}; // Nuevo
       const valores = {};
 
       Object.entries(dias).forEach(([dia, info]) => {
@@ -202,17 +197,19 @@ export async function GET(req) {
         fechas[dia] = info.fecha;
         esFuturo[dia] = info.esFuturo;
         esInactivo[dia] = info.esInactivo;
+        esFinDeSemana[dia] = info.esFinDeSemana; // Nuevo
       });
 
       return {
         nombre: emp.nombre_completo,
         area: emp.area,
         departamento: emp.departamento || '',
-        ...valores, // lunes, martes, etc. con 'X' o ''
+        ...valores, // jueves, viernes, lunes, etc. con 'X' o ''
         faltas,     // Faltas reales ya calculadas
         fechas,
         esFuturo,
         esInactivo,
+        esFinDeSemana, // Nuevo
       };
     });
 

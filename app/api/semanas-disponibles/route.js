@@ -100,15 +100,17 @@ export async function GET() {
 // Función para generar semanas por defecto (si no hay datos)
 function generarSemanasPorDefecto() {
   const semanas = [];
-  const fechaInicio = new Date(2026, 0, 5); // 5 de enero 2026
+  const fechaBase = new Date(2026, 0, 1); // 1 de enero 2026 (jueves)
   
-  // Generar 4 semanas por defecto
-  for (let semanaNum = 1; semanaNum <= 4; semanaNum++) {
-    const inicioSemana = new Date(fechaInicio);
-    inicioSemana.setDate(fechaInicio.getDate() + ((semanaNum - 1) * 7));
+  // Generar 4 semanas por defecto (o más según necesites)
+  const totalSemanas = 8; // 8 semanas para tener margen
+  
+  for (let semanaNum = 1; semanaNum <= totalSemanas; semanaNum++) {
+    const inicioSemana = new Date(fechaBase);
+    inicioSemana.setDate(fechaBase.getDate() + ((semanaNum - 1) * 7));
     
     const finSemana = new Date(inicioSemana);
-    finSemana.setDate(inicioSemana.getDate() + 4);
+    finSemana.setDate(inicioSemana.getDate() + 6); // Jueves + 6 días = Miércoles
     
     const formatDate = (date) => {
       const dia = date.getDate().toString().padStart(2, '0');
@@ -117,11 +119,25 @@ function generarSemanasPorDefecto() {
       return `${dia}/${mes}/${año}`;
     };
     
+    const inicioStr = formatDate(inicioSemana);
+    const finStr = formatDate(finSemana);
+    
+    // Verificar si esta semana ya pasó o es futura
+    const hoy = new Date();
+    const semanaTermino = new Date(finSemana);
+    semanaTermino.setHours(23, 59, 59); // Fin del día miércoles
+    
+    const registros = 0; // Placeholder, en realidad contarías de la DB
+    
     semanas.push({
       numero: semanaNum,
-      inicio: formatDate(inicioSemana),
-      fin: formatDate(finSemana),
-      registros: 0
+      inicio: inicioStr,
+      fin: finStr,
+      registros: registros,
+      // Información adicional útil
+      año: inicioSemana.getFullYear(),
+      mes: inicioSemana.getMonth() + 1,
+      dias: ['Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar', 'Mié']
     });
   }
   

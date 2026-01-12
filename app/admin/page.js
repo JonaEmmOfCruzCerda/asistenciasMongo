@@ -156,17 +156,18 @@ export default function AdminPage() {
 
   // ============ FUNCIONES PARA MANEJO DE SEMANAS ============
   
-  // Función para obtener rango de fecha por número de semana (Semana 1: 5-9 enero 2026)
+  // Función para obtener rango de fecha por número de semana (Semana 1: 1-7 enero 2026)
   const getWeekRangeByNumber = (weekNumber) => {
-    const fechaInicio = new Date(2026, 0, 5); // 5 de enero 2026 (Semana 1, Lunes)
+    // Fecha base: 1 de enero de 2026 (jueves) - semana empieza en jueves
+    const fechaBase = new Date(2026, 0, 1); // 1 de enero 2026 (jueves)
     
-    // Calcular fecha de inicio de la semana solicitada
-    const inicioSemana = new Date(fechaInicio);
-    inicioSemana.setDate(fechaInicio.getDate() + ((weekNumber - 1) * 7));
+    // Calcular fecha de inicio de la semana solicitada (jueves)
+    const inicioSemana = new Date(fechaBase);
+    inicioSemana.setDate(fechaBase.getDate() + ((weekNumber - 1) * 7));
     
-    // Calcular fecha de fin (Lunes + 4 días = Viernes)
+    // Calcular fecha de fin (miércoles - 6 días después)
     const finSemana = new Date(inicioSemana);
-    finSemana.setDate(inicioSemana.getDate() + 4);
+    finSemana.setDate(inicioSemana.getDate() + 6);
     
     // Formatear fechas
     const formatDate = (date) => {
@@ -183,12 +184,12 @@ export default function AdminPage() {
     };
   };
 
-  // Función para calcular número de semana actual
+  // Función para calcular número de semana actual (jueves a miércoles)
   const getCurrentWeekNumber = () => {
     const hoy = new Date();
-    const fechaInicio = new Date(2026, 0, 5); // 5 de enero 2026
+    const fechaInicio = new Date(2026, 0, 1); // 1 de enero 2026 (jueves)
     
-    // Si la fecha actual es anterior al 5 de enero 2026
+    // Si la fecha actual es anterior al 1 de enero 2026
     if (hoy < fechaInicio) {
       return 1;
     }
@@ -524,7 +525,7 @@ export default function AdminPage() {
     }
   };
 
-  // Función para calcular estadísticas de la semana
+  // Reemplazar la función actual con esta versión:
   const calcularEstadisticasSemana = (datos) => {
     if (!datos || datos.length === 0) {
       return {
@@ -537,25 +538,49 @@ export default function AdminPage() {
     
     let totalPresentes = 0;
     let totalFaltas = 0;
+    let totalDiasLaborales = 0;
+    
+    // Días laborales de la semana (jueves a miércoles, excluyendo sábado y domingo)
+    const diasLaborales = ['jueves', 'viernes', 'lunes', 'martes', 'miercoles'];
     
     datos.forEach(empleado => {
-      const dias = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes'];
-      dias.forEach(dia => {
-        if (empleado[dia] === 'X') {
-          totalPresentes++;
-        } else if (empleado[dia] === '' && !empleado.esFuturo?.[dia] && !empleado.esInactivo?.[dia]) {
-          totalFaltas++;
+      diasLaborales.forEach(dia => {
+        // Solo contar días que no sean futuros ni inactivos
+        if (!empleado.esFuturo?.[dia] && !empleado.esInactivo?.[dia]) {
+          totalDiasLaborales++; // Contar día laboral
+          
+          if (empleado[dia] === 'X') {
+            totalPresentes++;
+          } else if (empleado[dia] === '') {
+            // Solo contar como falta si NO es fin de semana
+            // Verificar si el día es sábado o domingo basado en la fecha
+            const fechaDia = empleado.fechas?.[dia];
+            if (fechaDia) {
+              const [diaNum, mes, año] = fechaDia.split('/').map(Number);
+              const fechaObj = new Date(año, mes - 1, diaNum);
+              const diaSemana = fechaObj.getDay(); // 0=Domingo, 6=Sábado
+              
+              // Solo contar falta si NO es sábado (6) o domingo (0)
+              if (diaSemana !== 0 && diaSemana !== 6) {
+                totalFaltas++;
+              }
+            } else {
+              // Si no hay fecha específica, contar como falta
+              totalFaltas++;
+            }
+          }
         }
       });
     });
     
-    const totalDias = datos.length * 5; // 5 días por empleado
-    const porcentajeAsistencia = totalDias > 0 ? (totalPresentes / totalDias) * 100 : 0;
+    const porcentajeAsistencia = totalDiasLaborales > 0 ? 
+      (totalPresentes / totalDiasLaborales) * 100 : 0;
     
     return {
       totalEmpleados: datos.length,
       totalPresentes,
       totalFaltas,
+      totalDiasLaborales,
       porcentajeAsistencia: parseFloat(porcentajeAsistencia.toFixed(1))
     };
   };
@@ -1037,7 +1062,7 @@ export default function AdminPage() {
       =============================== */
       const headers = [
         'Número Empleado','Nombre','Área','Departamento',
-        'Lunes','Martes','Miércoles','Jueves','Viernes',
+        'Jueves','Viernes','Lunes','Martes','Miércoles', // Nuevo orden
         'Faltas Totales','Observación'
       ];
 
@@ -1047,8 +1072,17 @@ export default function AdminPage() {
       };
 
       const getFaltasTotales = r =>
-        ['lunes','martes','miercoles','jueves','viernes']
-          .filter(d => r[d] !== 'X' && !r.esFuturo?.[d] && !r.esInactivo?.[d]).length;
+        ['jueves','viernes','lunes','martes','miercoles'] // Nuevo orden
+          .filter(d => {
+            const esFinDeSemana = r.esFinDeSemana?.[d];
+            return (
+              r[d] !== 'X' && 
+              !r.esFuturo?.[d] && 
+              !r.esInactivo?.[d] &&
+              !esFinDeSemana // Excluir fines de semana
+            );
+          }).length;
+
 
       const rows = weeklyDataFinal.map(r => ([
         r.numero_empleado,
@@ -3545,7 +3579,7 @@ const exportAttendanceToPDF = async () => {
                 >
                   {availableWeeks.map((week) => (
                     <option key={week.numero} value={week.numero}>
-                      Semana {week.numero} ({week.inicio} - {week.fin})
+                      Semana {week.numero} ({week.inicio} al {week.fin}) • Jue-Mié
                     </option>
                   ))}
                 </select>
@@ -3717,32 +3751,34 @@ const exportAttendanceToPDF = async () => {
                             Puesto
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Lunes
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Martes
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Miércoles
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Jueves
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Viernes
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Lunes
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Martes
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Miercoles
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Faltas
                           </th>
                         </tr>
                       </thead>
+                      {/* En el tbody de la tabla semanal, actualizar todas las llamadas a renderDayCell */}
                       <tbody className="bg-white divide-y divide-gray-200">
                         {paginatedWeeklyData.map((row, index) => {
-                          // Función para renderizar cada celda de día
+                          // Función para renderizar cada celda de día (dejarla dentro del map)
                           const renderDayCell = (dayName) => {
                             const valor = row[dayName]; // 'X' o ''
-                            const esFuturo = row.esFuturo?.[dayName]; // true/false
-                            const esInactivo = row.esInactivo?.[dayName]; // true/false para 5/01/2026
+                            const esFuturo = row.esFuturo?.[dayName];
+                            const esInactivo = row.esInactivo?.[dayName];
+                            const esFinDeSemana = row.esFinDeSemana?.[dayName]; // Nuevo
                             
                             // Día futuro
                             if (esFuturo) {
@@ -3772,7 +3808,21 @@ const exportAttendanceToPDF = async () => {
                               );
                             }
                             
-                            // Día pasado - mostrar asistencia real
+                            // Fin de semana (sábado o domingo)
+                            if (esFinDeSemana) {
+                              return (
+                                <div className="flex justify-center">
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center"
+                                    title="Fin de semana (no laboral)"
+                                  >
+                                    <span className="text-xs text-blue-500">FS</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            // Día laboral - mostrar asistencia real
                             return (
                               <div className="flex justify-center">
                                 {valor === 'X' ? (
@@ -3806,6 +3856,16 @@ const exportAttendanceToPDF = async () => {
                                 <div className="text-sm text-gray-900">{row.departamento || '-'}</div>
                               </td>
                               
+                              {/* Jueves */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('jueves')}
+                              </td>
+                              
+                              {/* Viernes */}
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {renderDayCell('viernes')}
+                              </td>
+                              
                               {/* Lunes */}
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {renderDayCell('lunes')}
@@ -3821,16 +3881,6 @@ const exportAttendanceToPDF = async () => {
                                 {renderDayCell('miercoles')}
                               </td>
                               
-                              {/* Jueves */}
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                {renderDayCell('jueves')}
-                              </td>
-                              
-                              {/* Viernes */}
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                {renderDayCell('viernes')}
-                              </td>
-                              
                               {/* Faltas reales */}
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex justify-center">
@@ -3843,7 +3893,6 @@ const exportAttendanceToPDF = async () => {
                                   </span>
                                 </div>
                               </td>
-                              
                             </tr>
                           );
                         })}
