@@ -509,18 +509,6 @@ export default function AdminPage() {
           'Cache-Control': 'no-cache'
         }
       });
-
-      const dataOrdenada = data.map(item => ({
-        ...item,
-        // Asegurar que los días están en el orden: jueves, viernes, lunes, martes, miércoles
-        dias: {
-          jueves: item.jueves || '',
-          viernes: item.viernes || '',
-          lunes: item.lunes || '',
-          martes: item.martes || '',
-          miercoles: item.miercoles || ''
-        }
-      }));
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
