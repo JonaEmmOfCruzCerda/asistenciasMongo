@@ -45,10 +45,13 @@ export async function GET(solicitud) {
 }
 
 // POST: Crear o actualizar observación
+// app/api/observaciones/route.js - Función POST
 export async function POST(solicitud) {
   try {
     await conectarDB();
     const datos = await solicitud.json();
+    
+    console.log('📝 Datos recibidos para observación:', datos);
     
     // Validar datos requeridos
     if (!datos.employeeId || !datos.fecha) {
@@ -57,6 +60,15 @@ export async function POST(solicitud) {
         { status: 400 }
       );
     }
+    
+    // Usar un espacio en blanco si text está vacío
+    const textoObservacion = (datos.text && datos.text.trim() !== '') ? datos.text : ' ';
+    const tipoFalta = datos.tipoFalta || '';
+    
+    console.log('🔧 Valores procesados:', { 
+      text: textoObservacion, 
+      tipoFalta: tipoFalta 
+    });
     
     // Buscar si ya existe una observación para este empleado en esta fecha
     const observacionExistente = await Observacion.findOne({
@@ -67,30 +79,39 @@ export async function POST(solicitud) {
     let observacion;
     
     if (observacionExistente) {
+      console.log('📝 Actualizando observación existente');
       // Actualizar observación existente
-      observacionExistente.text = datos.text || '';
-      observacionExistente.tipoFalta = datos.tipoFalta || '';
+      observacionExistente.text = textoObservacion;
+      observacionExistente.tipoFalta = tipoFalta;
       observacionExistente.adminId = datos.adminId || 'admin';
       observacionExistente.date = new Date();
       
       observacion = await observacionExistente.save();
     } else {
-      // Crear nueva observación
+      console.log('🆕 Creando nueva observación');
+      // Crear nueva observación - usar un espacio si está vacío
       observacion = await Observacion.create({
         employeeId: datos.employeeId,
-        text: datos.text || '',
-        tipoFalta: datos.tipoFalta || '',
+        text: textoObservacion,
+        tipoFalta: tipoFalta,
         fecha: datos.fecha,
         date: datos.date || new Date(),
         adminId: datos.adminId || 'admin'
       });
     }
     
+    console.log('✅ Observación guardada exitosamente:', observacion);
     return NextResponse.json(observacion);
     
   } catch (error) {
-    console.error('Error al guardar observación:', error);
-    return NextResponse.json({ error: 'Error al guardar observación' }, { status: 500 });
+    console.error('❌ Error al guardar observación:', error);
+    console.error('❌ Detalles del error:', error.message);
+    
+    return NextResponse.json({ 
+      error: 'Error al guardar observación',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: 500 });
   }
 }
 

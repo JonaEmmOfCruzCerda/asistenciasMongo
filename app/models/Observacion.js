@@ -1,3 +1,4 @@
+// models/Observacion.js
 import mongoose from 'mongoose';
 
 const observacionSchema = new mongoose.Schema({
@@ -8,16 +9,23 @@ const observacionSchema = new mongoose.Schema({
   },
   text: {
     type: String,
-    required: true
+    default: ' ', // Un espacio en blanco en lugar de string vacío
+    validate: {
+      validator: function(v) {
+        // Permitir cualquier valor, incluso vacío
+        return true;
+      },
+      message: 'El texto es válido'
+    }
   },
   tipoFalta: {
     type: String,
-    enum: ['Vacaciones', 'Falta', 'Incapacidad'],
-    default: 'Falta'
+    enum: ['Vacaciones', 'Falta', 'Incapacidad', ''],
+    default: ''
   },
   fecha: {
     type: String,
-    require: true
+    required: true
   },
   date: {
     type: Date,
@@ -28,8 +36,13 @@ const observacionSchema = new mongoose.Schema({
     required: true
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  // Desactivar validación estricta
+  strict: 'throw'
 });
+
+// Eliminar cualquier validación required del campo text
+observacionSchema.path('text').required(false);
 
 observacionSchema.index({ employeeId: 1, date: -1 });
 

@@ -451,44 +451,75 @@ export default function AdminPage() {
   };
 
   // Función: Guardar observación con tipo de falta
+  // Función: Guardar observación con tipo de falta (VERSIÓN DEFINITIVA)
   const saveObservacion = async (employeeId, text, tipoFalta, fechaEspecifica = null) => {
+    // Validar que al menos haya un tipo de falta o una observación
+    const textValue = text?.trim() || '';
+    const tipoFaltaValue = tipoFalta || '';
+    
+    if (!textValue && !tipoFaltaValue) {
+      alert('Debe seleccionar un tipo de falta o agregar una observación');
+      setSavingObservacion(prev => ({ ...prev, [employeeId]: false }));
+      return;
+    }
+    
     setSavingObservacion(prev => ({ ...prev, [employeeId]: true }));
     
     try {
       const fecha = fechaEspecifica || getCurrentJaliscoDate();
+      
+      console.log('📤 Guardando observación:', {
+        employeeId,
+        text: textValue,
+        tipoFalta: tipoFaltaValue,
+        fecha
+      });
+      
+      // SOLUCIÓN DEFINITIVA: Enviar siempre string, nunca null
+      const datos = {
+        employeeId: employeeId,
+        text: textValue, // Siempre string (vacío o con contenido)
+        tipoFalta: tipoFaltaValue,
+        fecha: fecha,
+        adminId: 'admin'
+      };
+      
       const response = await fetch('/api/observaciones', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          employeeId: employeeId,
-          text: text || '',
-          tipoFalta: tipoFalta || '',
-          fecha: fecha,
-          adminId: 'admin'
-        }),
+        body: JSON.stringify(datos),
       });
       
+      const result = await response.json();
+      
       if (response.ok) {
+        console.log('✅ Observación guardada:', result);
+        
+        // Actualizar estado local
         setObservaciones(prev => ({
           ...prev,
-          [employeeId]: text || ''
+          [employeeId]: textValue
         }));
         
         setTiposFalta(prev => ({
           ...prev,
-          [employeeId]: tipoFalta || ''
+          [employeeId]: tipoFaltaValue
         }));
         
-        alert('Observación guardada exitosamente');
+        // Recargar datos
+        await fetchObservaciones(fecha);
         
-        // Si estamos en contexto semanal, recargar datos
-        if (fechaEspecifica) {
-          fetchWeeklyData(weekRange.start, weekRange.end);
-        }
+        // Mostrar mensaje de éxito
+        const mensaje = tipoFaltaValue 
+          ? `Tipo de falta "${tipoFaltaValue}" guardado${textValue ? ' con observación' : ''}`
+          : 'Observación guardada exitosamente';
+        
+        alert(mensaje);
       } else {
-        alert('Error al guardar observación');
+        console.error('❌ Error del servidor:', result);
+        alert('Error al guardar observación: ' + (result.error || result.details || 'Error desconocido'));
       }
     } catch (error) {
       console.error('Error guardando observación:', error);
@@ -1070,7 +1101,8 @@ export default function AdminPage() {
 
   // ============ FUNCIONES DE EXPORTACIÓN ============
   
-  // Exportar datos semanales a Excel con el diseño específico
+  // Exportar datos semanales a Excel con nuevo diseño
+  // Exportar datos semanales a Excel con nuevo diseño - VERSIÓN CORREGIDA
   const exportWeeklyToExcel = async () => {
     try {
       /* ===============================
@@ -1078,18 +1110,33 @@ export default function AdminPage() {
       =============================== */
       let observacionesMap = {};
       let empleadosMap = {};
-      let tiposFaltaMap = {}; // NUEVO: Mapa para tipos de falta
+      let tiposFaltaMap = {};
+      // NUEVO: Mapa para tipos de falta por fecha específica
+      let tiposFaltaPorFechaMap = {};
 
       try {
+        // Obtener todas las observaciones
         const obsRes = await fetch('/api/observaciones');
         if (obsRes.ok) {
           const data = await obsRes.json();
           data.forEach(obs => {
-            observacionesMap[obs.employeeId] = obs.text || '';
-            tiposFaltaMap[obs.employeeId] = obs.tipoFalta || ''; // NUEVO: Guardar tipo de falta
+            const employeeId = obs.employeeId;
+            observacionesMap[employeeId] = obs.text || '';
+            tiposFaltaMap[employeeId] = obs.tipoFalta || '';
+            
+            // Crear mapa por fecha específica
+            if (obs.fecha && obs.tipoFalta && obs.tipoFalta.trim()) {
+              if (!tiposFaltaPorFechaMap[employeeId]) {
+                tiposFaltaPorFechaMap[employeeId] = {};
+              }
+              // Guardar tipo de falta para la fecha específica
+              tiposFaltaPorFechaMap[employeeId][obs.fecha] = obs.tipoFalta;
+            }
           });
         }
-      } catch {}
+      } catch (error) {
+        console.error('Error cargando observaciones:', error);
+      }
 
       try {
         const empRes = await fetch('/api/empleados');
@@ -1099,7 +1146,9 @@ export default function AdminPage() {
             empleadosMap[emp.nombre_completo] = emp.numero_empleado;
           });
         }
-      } catch {}
+      } catch (error) {
+        console.error('Error cargando empleados:', error);
+      }
 
       /* ===============================
         UNIR DATOS
@@ -1107,13 +1156,13 @@ export default function AdminPage() {
       const weeklyDataFinal = weeklyData.map(row => {
         const num = empleadosMap[row.nombre];
         const obs = num ? observacionesMap[num] : '';
-        const tipoFalta = num ? tiposFaltaMap[num] : ''; // NUEVO: Obtener tipo de falta
+        const tipoFalta = num ? tiposFaltaMap[num] : '';
         
         return { 
           ...row, 
           numero_empleado: num || 'N/A', 
           observacion: obs?.trim() || '',
-          tipoFalta: tipoFalta || '' // NUEVO: Añadir tipo de falta
+          tipoFalta: tipoFalta || ''
         };
       });
 
@@ -1125,23 +1174,58 @@ export default function AdminPage() {
       const wb = XLSX.utils.book_new();
 
       /* ===============================
-        ENCABEZADOS ACTUALIZADOS (CON TIPO DE FALTA)
+        CALCULAR FECHAS PARA CADA DÍA (NUEVO ORDEN: JUEVES A MIÉRCOLES)
+      =============================== */
+      // Calcular fecha para cada día específico
+      const fechaJueves = calcularFechaParaDiaSemana(selectedWeek, 'jueves');
+      const fechaViernes = calcularFechaParaDiaSemana(selectedWeek, 'viernes');
+      const fechaLunes = calcularFechaParaDiaSemana(selectedWeek, 'lunes');
+      const fechaMartes = calcularFechaParaDiaSemana(selectedWeek, 'martes');
+      const fechaMiercoles = calcularFechaParaDiaSemana(selectedWeek, 'miercoles');
+
+      /* ===============================
+        ENCABEZADOS ACTUALIZADOS
       =============================== */
       const headers = [
         'Número Empleado','Nombre','Área','Departamento',
-        'Jueves','Viernes','Lunes','Martes','Miércoles', // Nuevo orden: Jueves a Miércoles
-        'Faltas Totales','Tipo de Falta','Observación' // NUEVO: Tipo de Falta agregado
+        `Jueves\n${fechaJueves}`,
+        `Viernes\n${fechaViernes}`,
+        `Lunes\n${fechaLunes}`,
+        `Martes\n${fechaMartes}`,
+        `Miércoles\n${fechaMiercoles}`,
+        'Faltas Totales',
+        'Observación'
       ];
 
-      // Función para formatear días en el nuevo orden
-      const formatDia = (v, f, i, esFinDeSemana) => {
+      // Función para formatear días con tipo de falta específico por fecha
+      const formatDia = (v, f, i, esFinDeSemana, employeeId, fechaDia, esFalta = false) => {
         if (f || i || esFinDeSemana) return '';
-        return v === 'X' ? 'Asistencia' : 'Falta';
+        
+        if (v === 'X') {
+          return 'Asistencia';
+        } else {
+          // Si es falta, buscar tipo de falta específico para esta fecha
+          if (esFalta && employeeId && fechaDia && tiposFaltaPorFechaMap[employeeId]) {
+            const tipoFaltaEspecifico = tiposFaltaPorFechaMap[employeeId][fechaDia];
+            if (tipoFaltaEspecifico && tipoFaltaEspecifico.trim()) {
+              return tipoFaltaEspecifico.trim(); // Ej: "Incapacidad", "Vacaciones"
+            }
+          }
+          // Si no hay tipo específico para esta fecha, usar el general
+          if (esFalta && employeeId && tiposFaltaMap[employeeId] && tiposFaltaMap[employeeId].trim()) {
+            return tiposFaltaMap[employeeId].trim();
+          }
+          // Por defecto
+          if (esFalta) {
+            return 'Falta';
+          }
+          return '';
+        }
       };
 
       // Función para calcular faltas en el nuevo orden
       const getFaltasTotales = r => {
-        const dias = ['jueves','viernes','lunes','martes','miercoles']; // Nuevo orden
+        const dias = ['jueves','viernes','lunes','martes','miercoles'];
         return dias.filter(d => {
           const esFinDeSemana = r.esFinDeSemana?.[d];
           return (
@@ -1153,78 +1237,124 @@ export default function AdminPage() {
         }).length;
       };
 
-      // Crear filas con el nuevo orden
-      const rows = weeklyDataFinal.map(r => ([
-        r.numero_empleado,
-        r.nombre,
-        r.area,
-        r.departamento || '',
-        formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves, r.esFinDeSemana?.jueves), // Jueves
-        formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes, r.esFinDeSemana?.viernes), // Viernes
-        formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes, r.esFinDeSemana?.lunes), // Lunes
-        formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes, r.esFinDeSemana?.martes), // Martes
-        formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles, r.esFinDeSemana?.miercoles), // Miércoles
-        getFaltasTotales(r),
-        r.tipoFalta || '', // NUEVO: Tipo de falta
-        r.observacion
-      ]));
+      // Crear filas con tipo de falta específico por fecha
+      const rows = weeklyDataFinal.map(r => {
+        const employeeId = r.numero_empleado;
+        
+        // Determinar si cada día es una falta
+        const esFaltaJueves = r.jueves !== 'X' && !r.esFuturo?.jueves && !r.esInactivo?.jueves && !r.esFinDeSemana?.jueves;
+        const esFaltaViernes = r.viernes !== 'X' && !r.esFuturo?.viernes && !r.esInactivo?.viernes && !r.esFinDeSemana?.viernes;
+        const esFaltaLunes = r.lunes !== 'X' && !r.esFuturo?.lunes && !r.esInactivo?.lunes && !r.esFinDeSemana?.lunes;
+        const esFaltaMartes = r.martes !== 'X' && !r.esFuturo?.martes && !r.esInactivo?.martes && !r.esFinDeSemana?.martes;
+        const esFaltaMiercoles = r.miercoles !== 'X' && !r.esFuturo?.miercoles && !r.esInactivo?.miercoles && !r.esFinDeSemana?.miercoles;
+        
+        return [
+          r.numero_empleado,
+          r.nombre,
+          r.area,
+          r.departamento || '',
+          formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves, r.esFinDeSemana?.jueves, employeeId, fechaJueves, esFaltaJueves),
+          formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes, r.esFinDeSemana?.viernes, employeeId, fechaViernes, esFaltaViernes),
+          formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes, r.esFinDeSemana?.lunes, employeeId, fechaLunes, esFaltaLunes),
+          formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes, r.esFinDeSemana?.martes, employeeId, fechaMartes, esFaltaMartes),
+          formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles, r.esFinDeSemana?.miercoles, employeeId, fechaMiercoles, esFaltaMiercoles),
+          getFaltasTotales(r),
+          r.observacion
+        ];
+      });
 
-      // Crear datos de la hoja
+      /* ===============================
+        CONSTRUIR LA HOJA DE CÁLCULO CON ESTILO AZUL
+      =============================== */
       const sheetData = [
+        // Título principal
         ['REPORTE SEMANAL DE ASISTENCIAS'],
+        // Subtítulo con rango de fechas
         [`Semana ${selectedWeek}: ${weekRange.start} al ${weekRange.end}`],
+        // Fecha y hora de generación
         [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`],
+        // Fila vacía
         [],
+        // Estadísticas
         [`Total empleados: ${weeklyDataFinal.length}`],
         [`Faltas totales: ${weekStats.totalFaltas}`],
         [`Porcentaje de asistencia: ${weekStats.porcentajeAsistencia}%`],
+        // Fila vacía
         [],
+        // Encabezados de tabla
         headers,
+        // Datos
         ...rows
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
       /* ===============================
-        ESTILOS
+        APLICAR ESTILOS AZULES (SIMILAR A REPORTE DE ASISTENCIAS)
       =============================== */
+
+      // Definir estilos
       const titleStyle = {
-        font: { bold: true, sz: 16, color: { rgb: 'FF2F2F2F' } },
+        font: { bold: true, sz: 16, color: { rgb: '000000' } },
         alignment: { horizontal: 'center', vertical: 'center' }
       };
 
       const subtitleStyle = {
-        font: { sz: 12, color: { rgb: 'FF4A4A4A' } }
+        font: { bold: true, sz: 12, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
       };
 
       const statsStyle = {
-        font: { sz: 11, color: { rgb: 'FF4A4A4A' } }
+        font: { bold: true, sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
       };
 
       const headerStyle = {
-        font: { bold: true, sz: 11, color: { rgb: 'FF2F2F2F' } },
-        fill: { patternType: 'solid', fgColor: { rgb: 'FFD6D6D6' } },
+        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '2E5A8D' } }, // AZUL OSCURO
         alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
         border: {
-          top: { style: 'thin', color: { rgb: 'FFD0D0D0' } },
-          bottom: { style: 'thin', color: { rgb: 'FFD0D0D0' } },
-          left: { style: 'thin', color: { rgb: 'FFD0D0D0' } },
-          right: { style: 'thin', color: { rgb: 'FFD0D0D0' } }
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
         }
       };
 
-      const baseCell = {
-        font: { sz: 11, color: { rgb: 'FF3A3A3A' } },
-        fill: { patternType: 'solid', fgColor: { rgb: 'FFF5F5F5' } },
+      const cellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
         border: {
-          top: { style: 'thin', color: { rgb: 'FFE0E0E0' } },
-          bottom: { style: 'thin', color: { rgb: 'FFE0E0E0' } },
-          left: { style: 'thin', color: { rgb: 'FFE0E0E0' } },
-          right: { style: 'thin', color: { rgb: 'FFE0E0E0' } }
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
         }
       };
 
-      // Aplicar estilos
+      const nombreCellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const observacionCellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      // Aplicar estilos a las celdas
       const range = XLSX.utils.decode_range(ws['!ref']);
 
       for (let R = 0; R <= range.e.r; R++) {
@@ -1232,58 +1362,121 @@ export default function AdminPage() {
           const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
           if (!cell) continue;
 
-          if (R === 0) cell.s = titleStyle;
-          else if (R === 1 || R === 2) cell.s = subtitleStyle;
-          else if (R >= 4 && R <= 6) cell.s = statsStyle;
-          else if (R === 8) cell.s = headerStyle;
-          else if (R > 8) {
-            cell.s = {
-              ...baseCell,
-              alignment: {
-                horizontal: C === 1 || C === headers.length - 1 || C === headers.length - 2 ? 'left' : 'center',
-                vertical: 'center',
-                wrapText: C === headers.length - 1
+          // Filas de título (1-3)
+          if (R === 0 || R === 1) {
+            cell.s = titleStyle;
+            // Combinar celdas para el título
+            if (R === 0) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+            }
+            if (R === 1) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+            }
+          }
+
+          // Fila de generado (2)
+          if (R === 2) {
+            cell.s = subtitleStyle;
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+          }
+
+          // Filas de estadísticas (4-6)
+          if (R >= 4 && R <= 6) {
+            cell.s = statsStyle;
+          }
+
+          // Encabezados de tabla (fila 8, considerando filas vacías)
+          if (R === 8) {
+            cell.s = headerStyle;
+          }
+
+          // Filas de datos (desde la fila 9 en adelante)
+          if (R > 8) {
+            // Columna de Nombre (columna 1)
+            if (C === 1) {
+              cell.s = nombreCellStyle;
+            }
+            // Columna de Observación (última columna)
+            else if (C === headers.length - 1) {
+              cell.s = observacionCellStyle;
+            }
+            // Columnas de días (4-8) - aplicar colores según valor
+            else if (C >= 4 && C <= 8) {
+              const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
+              const diaStyle = { ...cellStyle };
+              
+              // Aplicar colores según el contenido
+              if (cellValue === 'Asistencia') {
+                diaStyle.fill = { fgColor: { rgb: 'C6EFCE' } }; // Verde claro
+                diaStyle.font = { ...diaStyle.font, color: { rgb: '006100' }, bold: true };
+              } else if (cellValue === 'Falta') {
+                diaStyle.fill = { fgColor: { rgb: 'FFC7CE' } }; // Rojo claro
+                diaStyle.font = { ...diaStyle.font, color: { rgb: '9C0006' }, bold: true };
+              } else if (cellValue === 'Vacaciones') {
+                diaStyle.fill = { fgColor: { rgb: 'FFEB9C' } }; // Amarillo claro
+                diaStyle.font = { ...diaStyle.font, color: { rgb: '9C5700' }, bold: true };
+              } else if (cellValue === 'Incapacidad') {
+                diaStyle.fill = { fgColor: { rgb: 'DDEBF7' } }; // Azul claro
+                diaStyle.font = { ...diaStyle.font, color: { rgb: '2F5496' }, bold: true };
               }
-            };
+              // Puedes agregar más tipos aquí si es necesario
+              
+              cell.s = diaStyle;
+            }
+            // Otras columnas
+            else {
+              cell.s = cellStyle;
+            }
           }
         }
       }
 
-      // Combinar celdas del título
+      // Combinar celdas del título y subtítulos
       ws['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
       ];
 
-      // Ajustar anchos de columnas (añadir columna para Tipo de Falta)
+      /* ===============================
+        AJUSTAR ANCHO DE COLUMNAS
+      =============================== */
       ws['!cols'] = [
         { wch: 16 },  // Número Empleado
         { wch: 30 },  // Nombre
         { wch: 15 },  // Área
         { wch: 18 },  // Departamento
-        { wch: 10 },  // Jueves
-        { wch: 10 },  // Viernes
-        { wch: 10 },  // Lunes
-        { wch: 10 },  // Martes
-        { wch: 12 },  // Miércoles
+        { wch: 14 },  // Jueves (con fecha)
+        { wch: 14 },  // Viernes (con fecha)
+        { wch: 14 },  // Lunes (con fecha)
+        { wch: 14 },  // Martes (con fecha)
+        { wch: 14 },  // Miércoles (con fecha)
         { wch: 12 },  // Faltas Totales
-        { wch: 15 },  // Tipo de Falta (NUEVO)
         { wch: 35 }   // Observación
       ];
 
-      ws['!freeze'] = { ySplit: 9 };
+      /* ===============================
+        CONGELAR PANELES
+      =============================== */
+      ws['!freeze'] = { xSplit: 0, ySplit: 8, topLeftCell: 'A9', activePane: 'bottomRight' };
 
       XLSX.utils.book_append_sheet(wb, ws, `Semana ${selectedWeek}`);
 
+      /* ===============================
+        GUARDAR ARCHIVO
+      =============================== */
       XLSX.writeFile(
         wb,
         `REPORTE_SEMANAL_ASISTENCIAS_SEMANA_${selectedWeek}_${weekRange.start.replace(/\//g, '-')}.xlsx`
       );
 
+      console.log('✅ Reporte semanal exportado con tipo de falta por fecha');
     } catch (e) {
-      console.error('❌ Error Excel:', e);
-      alert('Error al exportar el Excel');
+      console.error('❌ Error al exportar reporte semanal:', e);
+      alert('Error al exportar el Excel. Por favor, intente nuevamente.');
     }
   };
 
