@@ -525,7 +525,7 @@ export default function AdminPage() {
     }
   };
 
-  // Reemplazar la función actual con esta versión:
+  // Función corregida para calcular estadísticas de la semana
   const calcularEstadisticasSemana = (datos) => {
     if (!datos || datos.length === 0) {
       return {
@@ -534,40 +534,31 @@ export default function AdminPage() {
         totalFaltas: 0,
         porcentajeAsistencia: 0
       };
-    }
+    };
     
     let totalPresentes = 0;
     let totalFaltas = 0;
     let totalDiasLaborales = 0;
     
-    // Días laborales de la semana (jueves a miércoles, excluyendo sábado y domingo)
-    const diasLaborales = ['jueves', 'viernes', 'lunes', 'martes', 'miercoles'];
+    // Días de la semana en el orden que aparecen (jueves a miércoles)
+    const diasSemana = ['jueves', 'viernes', 'lunes', 'martes', 'miercoles'];
     
     datos.forEach(empleado => {
-      diasLaborales.forEach(dia => {
-        // Solo contar días que no sean futuros ni inactivos
-        if (!empleado.esFuturo?.[dia] && !empleado.esInactivo?.[dia]) {
+      diasSemana.forEach(dia => {
+        // Verificar si es día laboral válido
+        const esFuturo = empleado.esFuturo?.[dia];
+        const esInactivo = empleado.esInactivo?.[dia];
+        const esFinDeSemana = empleado.esFinDeSemana?.[dia];
+        
+        // Solo contar días que sean laborales y no futuros
+        if (!esFuturo && !esInactivo && !esFinDeSemana) {
           totalDiasLaborales++; // Contar día laboral
           
           if (empleado[dia] === 'X') {
             totalPresentes++;
           } else if (empleado[dia] === '') {
-            // Solo contar como falta si NO es fin de semana
-            // Verificar si el día es sábado o domingo basado en la fecha
-            const fechaDia = empleado.fechas?.[dia];
-            if (fechaDia) {
-              const [diaNum, mes, año] = fechaDia.split('/').map(Number);
-              const fechaObj = new Date(año, mes - 1, diaNum);
-              const diaSemana = fechaObj.getDay(); // 0=Domingo, 6=Sábado
-              
-              // Solo contar falta si NO es sábado (6) o domingo (0)
-              if (diaSemana !== 0 && diaSemana !== 6) {
-                totalFaltas++;
-              }
-            } else {
-              // Si no hay fecha específica, contar como falta
-              totalFaltas++;
-            }
+            // Solo contar como falta si está vacío (no tiene 'X')
+            totalFaltas++;
           }
         }
       });
