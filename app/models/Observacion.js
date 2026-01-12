@@ -10,6 +10,15 @@ const observacionSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  tipoFalta: {
+    type: String,
+    enum: ['Vacaciones', 'Falta', 'Incapacidad'],
+    default: 'Falta'
+  },
+  fecha: {
+    type: String,
+    require: true
+  },
   date: {
     type: Date,
     default: Date.now

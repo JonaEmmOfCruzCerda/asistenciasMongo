@@ -75,6 +75,7 @@ export default function AdminPage() {
   
   // ESTADOS PARA OBSERVACIONES
   const [observaciones, setObservaciones] = useState({});
+  const [tiposFalta, setTiposFalta] = useState({}); 
   const [observacionInput, setObservacionInput] = useState({});
   const [savingObservacion, setSavingObservacion] = useState({});
   
@@ -208,6 +209,59 @@ export default function AdminPage() {
   const getCurrentWeekRange = () => {
     const weekNumber = getCurrentWeekNumber();
     return getWeekRangeByNumber(weekNumber);
+  };
+
+  // ============ FUNCIÓN PARA CALCULAR FECHA PARA DÍA ESPECÍFICO DE SEMANA ============
+
+  // Función para calcular la fecha específica para un día de la semana
+  const calcularFechaParaDiaSemana = (semanaNumero, diaNombre) => {
+    // Mapeo de nombres de días a índices (0 = jueves, 1 = viernes, 2 = lunes, 3 = martes, 4 = miércoles)
+    const diasMap = {
+      'jueves': 0,
+      'viernes': 1,
+      'lunes': 2,
+      'martes': 3,
+      'miercoles': 4
+    };
+    
+    // Fecha base: 1 de enero de 2026 (jueves)
+    const fechaBase = new Date(2026, 0, 1);
+    
+    // Calcular fecha de inicio de la semana (jueves)
+    const inicioSemana = new Date(fechaBase);
+    inicioSemana.setDate(fechaBase.getDate() + ((semanaNumero - 1) * 7));
+    
+    // Calcular fecha específica para el día solicitado
+    const fechaDia = new Date(inicioSemana);
+    
+    // Ajustar según el día solicitado
+    switch(diaNombre) {
+      case 'jueves':
+        // Ya es jueves, no ajustar
+        break;
+      case 'viernes':
+        fechaDia.setDate(inicioSemana.getDate() + 1);
+        break;
+      case 'lunes':
+        fechaDia.setDate(inicioSemana.getDate() + 4); // Jueves + 4 días = Lunes
+        break;
+      case 'martes':
+        fechaDia.setDate(inicioSemana.getDate() + 5);
+        break;
+      case 'miercoles':
+        fechaDia.setDate(inicioSemana.getDate() + 6);
+        break;
+      default:
+        // Si no es un día válido, devolver la fecha de inicio
+        break;
+    }
+    
+    // Formatear fecha como DD/MM/YYYY
+    const dia = fechaDia.getDate().toString().padStart(2, '0');
+    const mes = (fechaDia.getMonth() + 1).toString().padStart(2, '0');
+    const año = fechaDia.getFullYear();
+    
+    return `${dia}/${mes}/${año}`;
   };
 
   // Función para cambiar de semana
@@ -371,30 +425,37 @@ export default function AdminPage() {
     return `${hora}:${minutos}`;
   };
 
-  // Función: Cargar observaciones
-  const fetchObservaciones = async () => {
+  // Función: Cargar observaciones con filtro por fecha
+  const fetchObservaciones = async (fechaEspecifica = null) => {
     try {
-      const response = await fetch('/api/observaciones');
+      const fecha = fechaEspecifica || getCurrentJaliscoDate();
+      const response = await fetch(`/api/observaciones?fecha=${fecha}`);
+      
       if (response.ok) {
         const data = await response.json();
         
         const observacionesObj = {};
+        const tiposFaltaObj = {};
+        
         data.forEach(obs => {
-          observacionesObj[obs.employeeId] = obs.text;
+          observacionesObj[obs.employeeId] = obs.text || '';
+          tiposFaltaObj[obs.employeeId] = obs.tipoFalta || '';
         });
         
         setObservaciones(observacionesObj);
+        setTiposFalta(tiposFaltaObj);
       }
     } catch (error) {
       console.error('Error cargando observaciones:', error);
     }
   };
 
-  // Función: Guardar observación
-  const saveObservacion = async (employeeId, text) => {
+  // Función: Guardar observación con tipo de falta
+  const saveObservacion = async (employeeId, text, tipoFalta, fechaEspecifica = null) => {
     setSavingObservacion(prev => ({ ...prev, [employeeId]: true }));
     
     try {
+      const fecha = fechaEspecifica || getCurrentJaliscoDate();
       const response = await fetch('/api/observaciones', {
         method: 'POST',
         headers: {
@@ -402,8 +463,9 @@ export default function AdminPage() {
         },
         body: JSON.stringify({
           employeeId: employeeId,
-          text: text,
-          date: new Date().toISOString(),
+          text: text || '',
+          tipoFalta: tipoFalta || '',
+          fecha: fecha,
           adminId: 'admin'
         }),
       });
@@ -411,15 +473,20 @@ export default function AdminPage() {
       if (response.ok) {
         setObservaciones(prev => ({
           ...prev,
-          [employeeId]: text
+          [employeeId]: text || ''
         }));
         
-        setObservacionInput(prev => ({
+        setTiposFalta(prev => ({
           ...prev,
-          [employeeId]: ''
+          [employeeId]: tipoFalta || ''
         }));
         
         alert('Observación guardada exitosamente');
+        
+        // Si estamos en contexto semanal, recargar datos
+        if (fechaEspecifica) {
+          fetchWeeklyData(weekRange.start, weekRange.end);
+        }
       } else {
         alert('Error al guardar observación');
       }
@@ -442,6 +509,18 @@ export default function AdminPage() {
           'Cache-Control': 'no-cache'
         }
       });
+
+      const dataOrdenada = data.map(item => ({
+        ...item,
+        // Asegurar que los días están en el orden: jueves, viernes, lunes, martes, miércoles
+        dias: {
+          jueves: item.jueves || '',
+          viernes: item.viernes || '',
+          lunes: item.lunes || '',
+          martes: item.martes || '',
+          miercoles: item.miercoles || ''
+        }
+      }));
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -1011,6 +1090,7 @@ export default function AdminPage() {
       =============================== */
       let observacionesMap = {};
       let empleadosMap = {};
+      let tiposFaltaMap = {}; // NUEVO: Mapa para tipos de falta
 
       try {
         const obsRes = await fetch('/api/observaciones');
@@ -1018,6 +1098,7 @@ export default function AdminPage() {
           const data = await obsRes.json();
           data.forEach(obs => {
             observacionesMap[obs.employeeId] = obs.text || '';
+            tiposFaltaMap[obs.employeeId] = obs.tipoFalta || ''; // NUEVO: Guardar tipo de falta
           });
         }
       } catch {}
@@ -1038,7 +1119,14 @@ export default function AdminPage() {
       const weeklyDataFinal = weeklyData.map(row => {
         const num = empleadosMap[row.nombre];
         const obs = num ? observacionesMap[num] : '';
-        return { ...row, numero_empleado: num || 'N/A', observacion: obs?.trim() || '' };
+        const tipoFalta = num ? tiposFaltaMap[num] : ''; // NUEVO: Obtener tipo de falta
+        
+        return { 
+          ...row, 
+          numero_empleado: num || 'N/A', 
+          observacion: obs?.trim() || '',
+          tipoFalta: tipoFalta || '' // NUEVO: Añadir tipo de falta
+        };
       });
 
       if (!weeklyDataFinal.length) {
@@ -1049,46 +1137,51 @@ export default function AdminPage() {
       const wb = XLSX.utils.book_new();
 
       /* ===============================
-        FILAS
+        ENCABEZADOS ACTUALIZADOS (CON TIPO DE FALTA)
       =============================== */
       const headers = [
         'Número Empleado','Nombre','Área','Departamento',
-        'Jueves','Viernes','Lunes','Martes','Miércoles', // Nuevo orden
-        'Faltas Totales','Observación'
+        'Jueves','Viernes','Lunes','Martes','Miércoles', // Nuevo orden: Jueves a Miércoles
+        'Faltas Totales','Tipo de Falta','Observación' // NUEVO: Tipo de Falta agregado
       ];
 
-      const formatDia = (v, f, i) => {
-        if (f || i) return '';
+      // Función para formatear días en el nuevo orden
+      const formatDia = (v, f, i, esFinDeSemana) => {
+        if (f || i || esFinDeSemana) return '';
         return v === 'X' ? 'Asistencia' : 'Falta';
       };
 
-      const getFaltasTotales = r =>
-        ['jueves','viernes','lunes','martes','miercoles'] // Nuevo orden
-          .filter(d => {
-            const esFinDeSemana = r.esFinDeSemana?.[d];
-            return (
-              r[d] !== 'X' && 
-              !r.esFuturo?.[d] && 
-              !r.esInactivo?.[d] &&
-              !esFinDeSemana // Excluir fines de semana
-            );
-          }).length;
+      // Función para calcular faltas en el nuevo orden
+      const getFaltasTotales = r => {
+        const dias = ['jueves','viernes','lunes','martes','miercoles']; // Nuevo orden
+        return dias.filter(d => {
+          const esFinDeSemana = r.esFinDeSemana?.[d];
+          return (
+            r[d] !== 'X' && 
+            !r.esFuturo?.[d] && 
+            !r.esInactivo?.[d] &&
+            !esFinDeSemana
+          );
+        }).length;
+      };
 
-
+      // Crear filas con el nuevo orden
       const rows = weeklyDataFinal.map(r => ([
         r.numero_empleado,
         r.nombre,
         r.area,
         r.departamento || '',
-        formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes),
-        formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes),
-        formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles),
-        formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves),
-        formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes),
+        formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves, r.esFinDeSemana?.jueves), // Jueves
+        formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes, r.esFinDeSemana?.viernes), // Viernes
+        formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes, r.esFinDeSemana?.lunes), // Lunes
+        formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes, r.esFinDeSemana?.martes), // Martes
+        formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles, r.esFinDeSemana?.miercoles), // Miércoles
         getFaltasTotales(r),
+        r.tipoFalta || '', // NUEVO: Tipo de falta
         r.observacion
       ]));
 
+      // Crear datos de la hoja
       const sheetData = [
         ['REPORTE SEMANAL DE ASISTENCIAS'],
         [`Semana ${selectedWeek}: ${weekRange.start} al ${weekRange.end}`],
@@ -1105,7 +1198,7 @@ export default function AdminPage() {
       const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
       /* ===============================
-        ESTILOS MINIMALISTAS GRISES
+        ESTILOS
       =============================== */
       const titleStyle = {
         font: { bold: true, sz: 16, color: { rgb: 'FF2F2F2F' } },
@@ -1143,9 +1236,7 @@ export default function AdminPage() {
         }
       };
 
-      /* ===============================
-        APLICAR ESTILOS
-      =============================== */
+      // Aplicar estilos
       const range = XLSX.utils.decode_range(ws['!ref']);
 
       for (let R = 0; R <= range.e.r; R++) {
@@ -1161,7 +1252,7 @@ export default function AdminPage() {
             cell.s = {
               ...baseCell,
               alignment: {
-                horizontal: C === 1 || C === headers.length - 1 ? 'left' : 'center',
+                horizontal: C === 1 || C === headers.length - 1 || C === headers.length - 2 ? 'left' : 'center',
                 vertical: 'center',
                 wrapText: C === headers.length - 1
               }
@@ -1170,16 +1261,27 @@ export default function AdminPage() {
         }
       }
 
+      // Combinar celdas del título
       ws['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
       ];
 
+      // Ajustar anchos de columnas (añadir columna para Tipo de Falta)
       ws['!cols'] = [
-        { wch: 16 }, { wch: 30 }, { wch: 15 }, { wch: 18 },
-        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 },
-        { wch: 12 }, { wch: 15 }, { wch: 40 }
+        { wch: 16 },  // Número Empleado
+        { wch: 30 },  // Nombre
+        { wch: 15 },  // Área
+        { wch: 18 },  // Departamento
+        { wch: 10 },  // Jueves
+        { wch: 10 },  // Viernes
+        { wch: 10 },  // Lunes
+        { wch: 10 },  // Martes
+        { wch: 12 },  // Miércoles
+        { wch: 12 },  // Faltas Totales
+        { wch: 15 },  // Tipo de Falta (NUEVO)
+        { wch: 35 }   // Observación
       ];
 
       ws['!freeze'] = { ySplit: 9 };
@@ -1201,238 +1303,276 @@ export default function AdminPage() {
 
   // Exportar datos semanales a PDF con observaciones
   const exportWeeklyToPDF = async () => {
-  try {
-    const { jsPDF } = await import('jspdf');
-
-    /* ===============================
-      1️⃣ MAPAS DE OBSERVACIONES Y EMPLEADOS
-    =============================== */
-    let observacionesMap = {};
     try {
-      const obsRes = await fetch('/api/observaciones');
-      if (obsRes.ok) {
-        const data = await obsRes.json();
-        data.forEach(obs => {
-          if (
-            !observacionesMap[obs.employeeId] ||
-            new Date(obs.date) > new Date(observacionesMap[obs.employeeId].date)
-          ) {
-            observacionesMap[obs.employeeId] = obs;
-          }
-        });
-      }
-    } catch {}
+      const { jsPDF } = await import('jspdf');
 
-    let empleadosMap = {};
-    try {
-      const empRes = await fetch('/api/empleados');
-      if (empRes.ok) {
-        const data = await empRes.json();
-        data.forEach(emp => {
-          empleadosMap[emp.nombre_completo] = emp.numero_empleado;
-        });
-      }
-    } catch {}
+      /* ===============================
+        1️⃣ MAPAS DE OBSERVACIONES, TIPOS DE FALTA Y EMPLEADOS
+      =============================== */
+      let observacionesMap = {};
+      let tiposFaltaMap = {}; // NUEVO: Mapa para tipos de falta
+      
+      try {
+        const obsRes = await fetch('/api/observaciones');
+        if (obsRes.ok) {
+          const data = await obsRes.json();
+          data.forEach(obs => {
+            // Guardar la observación más reciente
+            if (!observacionesMap[obs.employeeId] || 
+                new Date(obs.date) > new Date(observacionesMap[obs.employeeId].date)) {
+              observacionesMap[obs.employeeId] = obs;
+            }
+            // Guardar tipo de falta
+            tiposFaltaMap[obs.employeeId] = obs.tipoFalta || '';
+          });
+        }
+      } catch {}
 
-    /* ===============================
-      2️⃣ UNIR DATOS
-    =============================== */
-    const weeklyDataFinal = weeklyData.map(row => {
-      const num = empleadosMap[row.nombre];
-      const obs = num ? observacionesMap[num]?.text : null;
+      let empleadosMap = {};
+      try {
+        const empRes = await fetch('/api/empleados');
+        if (empRes.ok) {
+          const data = await empRes.json();
+          data.forEach(emp => {
+            empleadosMap[emp.nombre_completo] = emp.numero_empleado;
+          });
+        }
+      } catch {}
 
-      return {
-        ...row,
-        numero_empleado: num || 'N/A',
-        observacion: obs && obs.trim() ? obs : '—'
+      /* ===============================
+        2️⃣ UNIR DATOS
+      =============================== */
+      const weeklyDataFinal = weeklyData.map(row => {
+        const num = empleadosMap[row.nombre];
+        const obs = num ? observacionesMap[num]?.text : null;
+        const tipoFalta = num ? tiposFaltaMap[num] : null; // NUEVO: Obtener tipo de falta
+
+        return {
+          ...row,
+          numero_empleado: num || 'N/A',
+          observacion: obs && obs.trim() ? obs : '—',
+          tipoFalta: tipoFalta && tipoFalta.trim() ? tipoFalta : '—' // NUEVO: Añadir tipo de falta
+        };
+      });
+
+      /* ===============================
+        3️⃣ PDF BASE
+      =============================== */
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const MAX_ROWS = 12;
+      const totalPages = Math.ceil(weeklyDataFinal.length / MAX_ROWS);
+
+      /* ===============================
+        4️⃣ RENDER DÍA (MINIMAL)
+      =============================== */
+      const renderDay = (valor, esFuturo, esInactivo, esFinDeSemana) => {
+        if (esFuturo || esInactivo || esFinDeSemana) return { t: '—', c: [156, 163, 175] };
+        if (valor === 'X') return { t: '✓', c: [16, 185, 129] };
+        return { t: '✗', c: [239, 68, 68] };
       };
-    });
 
-    /* ===============================
-      3️⃣ PDF BASE
-    =============================== */
-    const pdf = new jsPDF('l', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const MAX_ROWS = 13;
-    const totalPages = Math.ceil(weeklyDataFinal.length / MAX_ROWS);
-
-    /* ===============================
-      4️⃣ RENDER DÍA (MINIMAL)
-    =============================== */
-    const renderDay = (valor, esFuturo, esInactivo) => {
-      if (esFuturo) return { t: 'S/R', c: [156, 163, 175] };
-      if (esInactivo) return { t: '—', c: [107, 114, 128] };
-      if (valor === 'X') return { t: 'Asistencia', c: [16, 185, 129] };
-      return { t: 'Falta', c: [239, 68, 68] };
-    };
-
-    /* ===============================
-      5️⃣ HEADER MINIMALISTA
-    =============================== */
-    const drawHeader = (page) => {
-      // Línea superior
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, 26, pageWidth - 10, 26);
-
-      // Título
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(18);
-      pdf.setTextColor(17, 24, 39);
-      pdf.text('Reporte Semanal de Asistencias', 15, 15);
-
-      // Subtítulo
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(107, 114, 128);
-      pdf.text(
-        `Semana ${selectedWeek} · ${weekRange.start} al ${weekRange.end}`,
-        15,
-        22
-      );
-
-      // Página
-      pdf.text(
-        `Página ${page} de ${totalPages}`,
-        pageWidth - 15,
-        22,
-        { align: 'right' }
-      );
-
-      /* ===== Métricas ===== */
-      const y = 30;
-      const cardW = 42;
-      const gap = 6;
-
-      const metrics = [
-        { t: 'Empleados', v: weeklyDataFinal.length },
-        { t: 'Faltas', v: weekStats.totalFaltas },
-        { t: '% Asistencia', v: `${weekStats.porcentajeAsistencia}%` }
-      ];
-
-      metrics.forEach((m, i) => {
-        const x = 15 + i * (cardW + gap);
+      /* ===============================
+        5️⃣ HEADER MINIMALISTA
+      =============================== */
+      const drawHeader = (page) => {
+        // Línea superior
         pdf.setDrawColor(229, 231, 235);
-        pdf.roundedRect(x, y, cardW, 18, 3, 3);
+        pdf.line(10, 26, pageWidth - 10, 26);
 
-        pdf.setFontSize(7);
+        // Título
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(18);
+        pdf.setTextColor(17, 24, 39);
+        pdf.text('Reporte Semanal de Asistencias', 15, 15);
+
+        // Subtítulo
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(107, 114, 128);
-        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+        pdf.text(
+          `Semana ${selectedWeek} · ${weekRange.start} al ${weekRange.end}`,
+          15,
+          22
+        );
 
-        pdf.setFontSize(14);
+        // Página
+        pdf.text(
+          `Página ${page} de ${totalPages}`,
+          pageWidth - 15,
+          22,
+          { align: 'right' }
+        );
+
+        /* ===== Métricas ===== */
+        const y = 30;
+        const cardW = 42;
+        const gap = 6;
+
+        const metrics = [
+          { t: 'Empleados', v: weeklyDataFinal.length },
+          { t: 'Faltas', v: weekStats.totalFaltas },
+          { t: '% Asistencia', v: `${weekStats.porcentajeAsistencia}%` }
+        ];
+
+        metrics.forEach((m, i) => {
+          const x = 15 + i * (cardW + gap);
+          pdf.setDrawColor(229, 231, 235);
+          pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+          pdf.setFontSize(7);
+          pdf.setTextColor(107, 114, 128);
+          pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+          pdf.setFontSize(14);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(17, 24, 39);
+          pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+        });
+      };
+
+      /* ===============================
+        6️⃣ TABLA CON NUEVAS COLUMNAS
+      =============================== */
+      // Ajustar anchos para incluir Tipo de Falta
+      const colW = [45, 25, 35, 8, 8, 8, 8, 8, 12, 20, 40];
+
+      const drawTableHeader = (y) => {
+        pdf.setFillColor(243, 244, 246);
+        pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(55, 65, 81);
+
+        // Actualizar headers con nuevo orden y Tipo de Falta
+        const headers = ['Nombre', 'Área', 'Departamento', 'J', 'V', 'L', 'M', 'X', 'Faltas', 'Tipo Falta', 'Observación'];
+        let x = 12;
+        headers.forEach((h, i) => {
+          pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+          x += colW[i];
+        });
+      };
+
+      const drawRow = (row, y) => {
+        let x = 12;
+
+        // Nombre
+        pdf.setFontSize(7);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(17, 24, 39);
-        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
-      });
-    };
+        const nombre = row.nombre.length > 20 ? row.nombre.substring(0, 20) + '...' : row.nombre;
+        pdf.text(nombre, x + 2, y + 6);
+        x += colW[0];
 
-    /* ===============================
-      6️⃣ TABLA
-    =============================== */
-    const colW = [50, 35, 40, 15, 15, 15, 15, 15, 20, 50];
+        // Área
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(row.area || '—', x + 2, y + 6);
+        x += colW[1];
 
-    const drawTableHeader = (y) => {
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(10, y, pageWidth - 20, 9, 'F');
+        // Departamento
+        pdf.text(row.departamento || '—', x + 2, y + 6);
+        x += colW[2];
 
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(55, 65, 81);
+        // Días de la semana en nuevo orden: Jueves a Miércoles
+        const dias = [
+          { v: row.jueves, f: row.esFuturo?.jueves, i: row.esInactivo?.jueves, fs: row.esFinDeSemana?.jueves },
+          { v: row.viernes, f: row.esFuturo?.viernes, i: row.esInactivo?.viernes, fs: row.esFinDeSemana?.viernes },
+          { v: row.lunes, f: row.esFuturo?.lunes, i: row.esInactivo?.lunes, fs: row.esFinDeSemana?.lunes },
+          { v: row.martes, f: row.esFuturo?.martes, i: row.esInactivo?.martes, fs: row.esFinDeSemana?.martes },
+          { v: row.miercoles, f: row.esFuturo?.miercoles, i: row.esInactivo?.miercoles, fs: row.esFinDeSemana?.miercoles }
+        ];
 
-      const headers = ['Nombre', 'Área', 'Departamento', 'L', 'M', 'X', 'J', 'V', 'Faltas', 'Observacion'];
-      let x = 12;
-      headers.forEach((h, i) => {
-        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
-        x += colW[i];
-      });
-    };
+        dias.forEach(d => {
+          const r = renderDay(d.v, d.f, d.i, d.fs);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(...r.c);
+          pdf.text(r.t, x + colW[3] / 2, y + 6, { align: 'center' });
+          x += colW[3];
+        });
 
-    const drawRow = (row, y) => {
-      let x = 12;
+        // Faltas Totales
+        pdf.setTextColor(17, 24, 39);
+        const faltasTotales = ['jueves','viernes','lunes','martes','miercoles']
+          .filter(d => {
+            const esFinDeSemana = row.esFinDeSemana?.[d];
+            return (
+              row[d] !== 'X' && 
+              !row.esFuturo?.[d] && 
+              !row.esInactivo?.[d] &&
+              !esFinDeSemana
+            );
+          }).length;
+        pdf.text(String(faltasTotales), x + colW[8] / 2, y + 6, { align: 'center' });
+        x += colW[8];
 
+        // Tipo de Falta (NUEVO)
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(75, 85, 99);
+        const tipoFalta = row.tipoFalta || '—';
+        const tipoFaltaShort = tipoFalta.length > 12 ? tipoFalta.substring(0, 12) + '...' : tipoFalta;
+        pdf.text(tipoFaltaShort, x + colW[9] / 2, y + 6, { align: 'center' });
+        x += colW[9];
+
+        // Observación
+        const obs = row.observacion || '—';
+        const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
+        pdf.text(obsShort, x + 2, y + 6);
+
+        // Línea separadora
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, y + 9, pageWidth - 10, y + 9);
+      };
+
+      /* ===============================
+        7️⃣ PAGINADO
+      =============================== */
+      let page = 1;
+      for (let i = 0; i < weeklyDataFinal.length; i += MAX_ROWS) {
+        if (page > 1) pdf.addPage();
+        drawHeader(page);
+
+        let y = 55;
+        drawTableHeader(y);
+        y += 9;
+
+        weeklyDataFinal.slice(i, i + MAX_ROWS).forEach(row => {
+          drawRow(row, y);
+          y += 10;
+        });
+
+        page++;
+      }
+
+      /* ===============================
+        8️⃣ FOOTER CON LEYENDAS
+      =============================== */
+      pdf.setPage(totalPages);
       pdf.setFontSize(7);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(17, 24, 39);
-      pdf.text(row.nombre || '—', x + 2, y + 6);
-      x += colW[0];
-
-      pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(107, 114, 128);
-      pdf.text(row.area || '—', x + 8, y + 6);
-      x += colW[1];
-
-      pdf.text(row.departamento || '—', x + 2, y + 6);
-      x += colW[2];
-
-      const dias = [
-        { v: row.lunes, f: row.esFuturo?.lunes, i: row.esInactivo?.lunes },
-        { v: row.martes, f: row.esFuturo?.martes, i: row.esInactivo?.martes },
-        { v: row.miercoles, f: row.esFuturo?.miercoles, i: row.esInactivo?.miercoles },
-        { v: row.jueves, f: row.esFuturo?.jueves, i: row.esInactivo?.jueves },
-        { v: row.viernes, f: row.esFuturo?.viernes, i: row.esInactivo?.viernes }
+      
+      // Leyenda de símbolos
+      const leyenda = [
+        '✓ = Asistencia',
+        '✗ = Falta',
+        '— = No aplica (futuro/inactivo/fin de semana)'
       ];
-
-      dias.forEach(d => {
-        const r = renderDay(d.v, d.f, d.i);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(...r.c);
-        pdf.text(r.t, x + colW[3] / 2, y + 6, { align: 'center' });
-        x += colW[3];
+      
+      let xPos = 15;
+      leyenda.forEach((text, index) => {
+        pdf.text(text, xPos, pageHeight - 12);
+        xPos += 50;
       });
 
-      pdf.setTextColor(17, 24, 39);
-      pdf.text(String(row.faltas || 0), x + colW[8] / 2, y + 6, { align: 'center' });
-      x += colW[8];
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(75, 85, 99);
-      pdf.text(row.observacion || '—', x + 6, y + 6);
-
-      // Línea separadora
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, y + 9, pageWidth - 10, y + 9);
-    };
-
-    /* ===============================
-      7️⃣ PAGINADO
-    =============================== */
-    let page = 1;
-    for (let i = 0; i < weeklyDataFinal.length; i += MAX_ROWS) {
-      if (page > 1) pdf.addPage();
-      drawHeader(page);
-
-      let y = 55;
-      drawTableHeader(y);
-      y += 9;
-
-      weeklyDataFinal.slice(i, i + MAX_ROWS).forEach(row => {
-        drawRow(row, y);
-        y += 10;
-      });
-
-      page++;
+      pdf.save(`reporte_semana_${selectedWeek}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('Error al generar PDF');
     }
-
-    /* ===============================
-      8️⃣ FOOTER
-    =============================== */
-    pdf.setPage(totalPages);
-    pdf.setFontSize(7);
-    pdf.setTextColor(107, 114, 128);
-    pdf.text(
-      'S/R = Sin registro   — = Inactivo',
-      pageWidth / 2,
-      pageHeight - 12,
-      { align: 'center' }
-    );
-
-    pdf.save(`reporte_semana_${selectedWeek}.pdf`);
-  } catch (e) {
-    console.error(e);
-    alert('Error al generar PDF');
-  }
-};
+  };
 
 // Exportar registros de asistencia con diseño similar
 const exportAllToExcel = () => {
@@ -3485,26 +3625,69 @@ const exportAttendanceToPDF = async () => {
                                   {employee.lastTime || 'Sin registro'}
                                 </div>
                               </td>
+                              {/* En la tabla de verificación de asistencia */}
                               <td className="px-6 py-4">
                                 <div className="flex flex-col space-y-2">
+                                  {/* Selector para tipo de falta */}
+                                  <div className="mb-2">
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                                      Tipo de Falta
+                                    </label>
+                                    <select
+                                      value={tiposFalta[employee.id] || ''}
+                                      onChange={(e) => {
+                                        setTiposFalta(prev => ({
+                                          ...prev,
+                                          [employee.id]: e.target.value
+                                        }));
+                                      }}
+                                      className="w-full text-sm border text-gray-800 border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    >
+                                      <option value="">Seleccionar motivo...</option>
+                                      <option value="Vacaciones">Vacaciones</option>
+                                      <option value="Falta">Falta</option>
+                                      <option value="Incapacidad">Incapacidad</option>
+                                    </select>
+                                  </div>
+                                  
+                                  {/* Textarea para observaciones adicionales */}
                                   <textarea
-                                    value={observacionInput[employee.id] || observaciones[employee.id] || ''}
-                                    onChange={(e) => setObservacionInput(prev => ({
+                                    value={observaciones[employee.id] || ''}
+                                    onChange={(e) => setObservaciones(prev => ({
                                       ...prev,
                                       [employee.id]: e.target.value
                                     }))}
-                                    placeholder="Escriba una observación..."
+                                    placeholder="Observaciones adicionales..."
                                     className="w-full text-gray-800 text-sm border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     rows="2"
                                   />
-                                  <button
-                                    onClick={() => saveObservacion(employee.id, observacionInput[employee.id] || observaciones[employee.id] || '')}
-                                    disabled={savingObservacion[employee.id] || !(observacionInput[employee.id] || observaciones[employee.id])}
-                                    className="flex items-center justify-center px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                                  >
-                                    <PaperAirplaneIcon className="w-3 h-3 mr-1" />
-                                    {savingObservacion[employee.id] ? 'Guardando...' : 'Guardar'}
-                                  </button>
+                                  
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => saveObservacion(
+                                        employee.id, 
+                                        observaciones[employee.id] || '', 
+                                        tiposFalta[employee.id] || '',
+                                        getCurrentJaliscoDate()
+                                      )}
+                                      disabled={savingObservacion[employee.id]}
+                                      className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                    >
+                                      <PaperAirplaneIcon className="w-3 h-3 mr-1" />
+                                      {savingObservacion[employee.id] ? 'Guardando...' : 'Guardar'}
+                                    </button>
+                                    
+                                    {/* Botón para limpiar */}
+                                    <button
+                                      onClick={() => {
+                                        setTiposFalta(prev => ({ ...prev, [employee.id]: '' }));
+                                        setObservaciones(prev => ({ ...prev, [employee.id]: '' }));
+                                      }}
+                                      className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors"
+                                    >
+                                      Limpiar
+                                    </button>
+                                  </div>
                                 </div>
                               </td>
                             </tr>
