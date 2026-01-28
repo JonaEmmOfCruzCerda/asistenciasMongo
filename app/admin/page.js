@@ -81,6 +81,8 @@ export default function AdminPage() {
   const [tiposFalta, setTiposFalta] = useState({}); 
   const [observacionInput, setObservacionInput] = useState({});
   const [savingObservacion, setSavingObservacion] = useState({});
+
+  const [currentDay, setCurrentDay] = useState('');
   
   // ESTADOS PARA TABLA SEMANAL CON FILTRO POR SEMANAS
   const [weeklyData, setWeeklyData] = useState([]);
@@ -429,6 +431,7 @@ export default function AdminPage() {
   };
 
   // Función: Cargar observaciones con filtro por fecha
+  // Función: Cargar observaciones con filtro por fecha - MODIFICADA
   const fetchObservaciones = async (fechaEspecifica = null) => {
     try {
       const fecha = fechaEspecifica || getCurrentJaliscoDate();
@@ -440,13 +443,16 @@ export default function AdminPage() {
         const observacionesObj = {};
         const tiposFaltaObj = {};
         
+        // Crear clave compuesta: employeeId + fecha
         data.forEach(obs => {
-          observacionesObj[obs.employeeId] = obs.text || '';
-          tiposFaltaObj[obs.employeeId] = obs.tipoFalta || '';
+          const key = `${obs.employeeId}_${fecha}`;
+          observacionesObj[key] = obs.text || '';
+          tiposFaltaObj[key] = obs.tipoFalta || '';
         });
         
         setObservaciones(observacionesObj);
         setTiposFalta(tiposFaltaObj);
+        console.log(`✅ Observaciones cargadas para fecha: ${fecha}`, { observacionesObj, tiposFaltaObj });
       }
     } catch (error) {
       console.error('Error cargando observaciones:', error);
@@ -455,6 +461,7 @@ export default function AdminPage() {
 
   // Función: Guardar observación con tipo de falta
   // Función: Guardar observación con tipo de falta (VERSIÓN DEFINITIVA)
+  // Función: Guardar observación con tipo de falta - MODIFICADA PARA LIMPIEZA DIARIA
   const saveObservacion = async (employeeId, text, tipoFalta, fechaEspecifica = null) => {
     // Validar que al menos haya un tipo de falta o una observación
     const textValue = text?.trim() || '';
@@ -470,18 +477,19 @@ export default function AdminPage() {
     
     try {
       const fecha = fechaEspecifica || getCurrentJaliscoDate();
+      const key = `${employeeId}_${fecha}`;
       
       console.log('📤 Guardando observación:', {
         employeeId,
         text: textValue,
         tipoFalta: tipoFaltaValue,
-        fecha
+        fecha,
+        key
       });
       
-      // SOLUCIÓN DEFINITIVA: Enviar siempre string, nunca null
       const datos = {
         employeeId: employeeId,
-        text: textValue, // Siempre string (vacío o con contenido)
+        text: textValue,
         tipoFalta: tipoFaltaValue,
         fecha: fecha,
         adminId: 'admin'
@@ -500,15 +508,15 @@ export default function AdminPage() {
       if (response.ok) {
         console.log('✅ Observación guardada:', result);
         
-        // Actualizar estado local
+        // Actualizar estado local con clave compuesta
         setObservaciones(prev => ({
           ...prev,
-          [employeeId]: textValue
+          [key]: textValue
         }));
         
         setTiposFalta(prev => ({
           ...prev,
-          [employeeId]: tipoFaltaValue
+          [key]: tipoFaltaValue
         }));
         
         // Recargar datos
@@ -530,6 +538,42 @@ export default function AdminPage() {
     } finally {
       setSavingObservacion(prev => ({ ...prev, [employeeId]: false }));
     }
+  };
+
+  // Función para limpiar observaciones del día - NUEVA FUNCIÓN
+  const limpiarObservacionesDelDia = (fechaEspecifica = null) => {
+    const fecha = fechaEspecifica || getCurrentJaliscoDate();
+    console.log(`🧹 Limpiando observaciones para fecha: ${fecha}`);
+    
+    // Obtener todas las claves que corresponden a la fecha actual
+    const keysToRemove = [];
+    
+    // Buscar claves que contengan la fecha actual
+    Object.keys(observaciones).forEach(key => {
+      if (key.endsWith(`_${fecha}`)) {
+        keysToRemove.push(key);
+      }
+    });
+    
+    Object.keys(tiposFalta).forEach(key => {
+      if (key.endsWith(`_${fecha}`) && !keysToRemove.includes(key)) {
+        keysToRemove.push(key);
+      }
+    });
+    
+    // Crear nuevos objetos sin las claves de la fecha actual
+    const nuevasObservaciones = { ...observaciones };
+    const nuevosTiposFalta = { ...tiposFalta };
+    
+    keysToRemove.forEach(key => {
+      delete nuevasObservaciones[key];
+      delete nuevosTiposFalta[key];
+    });
+    
+    setObservaciones(nuevasObservaciones);
+    setTiposFalta(nuevosTiposFalta);
+    
+    console.log(`✅ Observaciones limpiadas: ${keysToRemove.length} registros eliminados`);
   };
 
  // Función para cargar datos semanales
@@ -940,23 +984,62 @@ export default function AdminPage() {
 
   // ============ EFECTOS ============
   
-  useEffect(() => {
-    fetchDataFromDB();
-    fetchEmployees();
-    fetchObservaciones();
-    fetchAvailableWeeks();
-    fetchAvailableDates();
+// ============ EFECTOS ============
+
+useEffect(() => {
+  const initialDate = getCurrentJaliscoDate();
+  setCurrentDay(initialDate);
+  
+  fetchDataFromDB();
+  fetchEmployees();
+  fetchObservaciones(initialDate); // <-- Pasar la fecha específica
+  fetchAvailableWeeks();
+  fetchAvailableDates();
+  
+  const weekNumber = getCurrentWeekNumber();
+  const weekRange = getWeekRangeByNumber(weekNumber);
+  setSelectedWeek(weekNumber);
+  setWeekRange(weekRange);
+  fetchWeeklyData(weekRange.start, weekRange.end);
+  
+  const interval = setInterval(fetchDataFromDB, 30000);
+  return () => clearInterval(interval);
+}, []);
+
+// EFECTO PARA DETECTAR CAMBIO DE DÍA Y LIMPIAR OBSERVACIONES - NUEVO EFECTO
+useEffect(() => {
+  const checkForDayChange = () => {
+    const today = getCurrentJaliscoDate();
     
-    // Configurar semana inicial
-    const weekNumber = getCurrentWeekNumber();
-    const weekRange = getWeekRangeByNumber(weekNumber);
-    setSelectedWeek(weekNumber);
-    setWeekRange(weekRange);
-    fetchWeeklyData(weekRange.start, weekRange.end);
-    
-    const interval = setInterval(fetchDataFromDB, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    if (today !== currentDay) {
+      console.log('📅 Día cambiado! Limpiando observaciones del día anterior...');
+      console.log(`🔁 Cambio de: ${currentDay} a: ${today}`);
+      
+      // Limpiar observaciones del día anterior
+      limpiarObservacionesDelDia(currentDay);
+      
+      // Establecer nuevo día
+      setCurrentDay(today);
+      
+      // Cargar observaciones para el nuevo día
+      fetchObservaciones(today);
+      
+      // Recargar datos de verificación
+      fetchAttendanceCheckData();
+      
+      // Mostrar notificación (opcional)
+      console.log('✅ Observaciones limpiadas automáticamente para nuevo día');
+    }
+  };
+
+  // Verificar cambio de día cada minuto
+  const dayChangeInterval = setInterval(checkForDayChange, 60000);
+  
+  // Verificar inmediatamente al cargar
+  checkForDayChange();
+  
+  return () => clearInterval(dayChangeInterval);
+}, [currentDay]);
 
   useEffect(() => {
     if (employees.length > 0 && !employeesLoading) {
@@ -2467,9 +2550,11 @@ const exportAttendanceCheckToExcel = async () => {
     /* ===============================
        DATOS DE LA TABLA
     =============================== */
+    // En la función exportAttendanceCheckToExcel, cambiar cómo se obtienen las observaciones:
     const rows = attendanceCheckData.map(e => {
-      // Obtener observación si existe
-      const observacion = observaciones[e.id] || '';
+      const today = getCurrentJaliscoDate();
+      const key = `${e.id}_${today}`;
+      const observacion = observaciones[key] || '';
       
       return [
         e.id,
@@ -3812,17 +3897,18 @@ const exportAttendanceToPDF = async () => {
                               {/* En la tabla de verificación de asistencia */}
                               <td className="px-6 py-4">
                                 <div className="flex flex-col space-y-2">
-                                  {/* Selector para tipo de falta */}
+                                  {/* Selector para tipo de falta - CON CLAVE COMPUESTA */}
                                   <div className="mb-2">
                                     <label className="block text-xs font-medium text-gray-700 mb-1">
                                       Tipo de Falta
                                     </label>
                                     <select
-                                      value={tiposFalta[employee.id] || ''}
+                                      value={tiposFalta[`${employee.id}_${getCurrentJaliscoDate()}`] || ''}
                                       onChange={(e) => {
+                                        const key = `${employee.id}_${getCurrentJaliscoDate()}`;
                                         setTiposFalta(prev => ({
                                           ...prev,
-                                          [employee.id]: e.target.value
+                                          [key]: e.target.value
                                         }));
                                       }}
                                       className="w-full text-sm border text-gray-800 border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -3834,13 +3920,16 @@ const exportAttendanceToPDF = async () => {
                                     </select>
                                   </div>
                                   
-                                  {/* Textarea para observaciones adicionales */}
+                                  {/* Textarea para observaciones adicionales - CON CLAVE COMPUESTA */}
                                   <textarea
-                                    value={observaciones[employee.id] || ''}
-                                    onChange={(e) => setObservaciones(prev => ({
-                                      ...prev,
-                                      [employee.id]: e.target.value
-                                    }))}
+                                    value={observaciones[`${employee.id}_${getCurrentJaliscoDate()}`] || ''}
+                                    onChange={(e) => {
+                                      const key = `${employee.id}_${getCurrentJaliscoDate()}`;
+                                      setObservaciones(prev => ({
+                                        ...prev,
+                                        [key]: e.target.value
+                                      }));
+                                    }}
                                     placeholder="Observaciones adicionales..."
                                     className="w-full text-gray-800 text-sm border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     rows="2"
@@ -3848,12 +3937,16 @@ const exportAttendanceToPDF = async () => {
                                   
                                   <div className="flex gap-2">
                                     <button
-                                      onClick={() => saveObservacion(
-                                        employee.id, 
-                                        observaciones[employee.id] || '', 
-                                        tiposFalta[employee.id] || '',
-                                        getCurrentJaliscoDate()
-                                      )}
+                                      onClick={() => {
+                                        const today = getCurrentJaliscoDate();
+                                        const key = `${employee.id}_${today}`;
+                                        saveObservacion(
+                                          employee.id, 
+                                          observaciones[key] || '', 
+                                          tiposFalta[key] || '',
+                                          today
+                                        );
+                                      }}
                                       disabled={savingObservacion[employee.id]}
                                       className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                                     >
@@ -3861,11 +3954,12 @@ const exportAttendanceToPDF = async () => {
                                       {savingObservacion[employee.id] ? 'Guardando...' : 'Guardar'}
                                     </button>
                                     
-                                    {/* Botón para limpiar */}
+                                    {/* Botón para limpiar solo esta fila */}
                                     <button
                                       onClick={() => {
-                                        setTiposFalta(prev => ({ ...prev, [employee.id]: '' }));
-                                        setObservaciones(prev => ({ ...prev, [employee.id]: '' }));
+                                        const key = `${employee.id}_${getCurrentJaliscoDate()}`;
+                                        setTiposFalta(prev => ({ ...prev, [key]: '' }));
+                                        setObservaciones(prev => ({ ...prev, [key]: '' }));
                                       }}
                                       className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors"
                                     >
