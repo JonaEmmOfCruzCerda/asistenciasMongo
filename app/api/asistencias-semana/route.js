@@ -1,10 +1,11 @@
+// app/api/asistencias-semana/route.js - VERSIÓN DEFINITIVA CON LÓGICA DE ASISTENCIA/RETARDO/FALTA
 import { NextResponse } from 'next/server';
 import { conectarDB } from '@/lib/mongoose';
 import Asistencia from '@/app/models/Asistencia';
 import Empleado from '@/app/models/Empleado';
 
 /* =========================
-   UTILIDADES FECHA - CORREGIDAS PARA JALISCO (UTC-6)
+   UTILIDADES FECHA
 ========================= */
 
 function parseDate(dateStr) {
@@ -22,115 +23,113 @@ function formatDate(date) {
 function es5Enero2026(date) {
   return (
     date.getDate() === 5 &&
-    date.getMonth() === 0 && // Enero es 0
+    date.getMonth() === 0 &&
     date.getFullYear() === 2026
   );
 }
 
-// 🟢 NUEVO: Obtener fecha actual en Jalisco (UTC-6) SIN horas
-// 🟢 CORREGIDA: Obtener fecha actual en Jalisco (UTC-6) 
-function getTodayJalisco() {
-  const ahora = new Date();
-  
-  // Obtener componentes UTC actuales
-  const utcHours = ahora.getUTCHours();
-  const utcDate = ahora.getUTCDate();
-  const utcMonth = ahora.getUTCMonth();
-  const utcYear = ahora.getUTCFullYear();
-  
-  // Aplicar offset de Jalisco (-6 horas)
-  let jaliscoHours = utcHours - 6;
-  let jaliscoDate = utcDate;
-  let jaliscoMonth = utcMonth;
-  let jaliscoYear = utcYear;
-  
-  // Ajustar si las horas son negativas (día anterior)
-  if (jaliscoHours < 0) {
-    jaliscoHours += 24;
-    jaliscoDate -= 1;
-    
-    // Ajustar si el día es 0 (mes anterior)
-    if (jaliscoDate === 0) {
-      const lastDayOfPrevMonth = new Date(utcYear, utcMonth, 0).getDate();
-      jaliscoDate = lastDayOfPrevMonth;
-      jaliscoMonth -= 1;
-      
-      // Ajustar si el mes es -1 (año anterior)
-      if (jaliscoMonth === -1) {
-        jaliscoMonth = 11;
-        jaliscoYear -= 1;
-      }
-    }
-  }
-  
-  // Crear fecha sin horas
-  return new Date(jaliscoYear, jaliscoMonth, jaliscoDate);
-}
-
-// OPCIÓN MÁS SIMPLE (si la anterior es compleja):
-function getTodayJaliscoSimple() {
-  const ahora = new Date();
-  
-  // Convertir a string en formato Jalisco
-  const options = {
-    timeZone: 'America/Mexico_City',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  };
-  
+// 🟢 NUEVA FUNCIÓN: Verificar asistencia con lógica de 9:00 AM
+async function verificarAsistenciaEmpleado(numero_empleado, fechaStr) {
   try {
-    const formatter = new Intl.DateTimeFormat('en-US', options);
-    const parts = formatter.formatToParts(ahora);
+    console.log(`🔍 Verificando asistencia para empleado ${numero_empleado} en fecha ${fechaStr}`);
     
-    const year = parts.find(p => p.type === 'year').value;
-    const month = parts.find(p => p.type === 'month').value;
-    const day = parts.find(p => p.type === 'day').value;
+    // Buscar registros del empleado para esta fecha específica
+    const registrosFecha = await Asistencia.find({
+      numero_empleado: numero_empleado,
+      fecha: fechaStr
+    }).sort({ marca_tiempo: 1 }); // Ordenar por tiempo ascendente
     
-    return new Date(`${year}-${month}-${day}T00:00:00`);
+    if (registrosFecha.length === 0) {
+      console.log(`   ❌ No hay registros para ${numero_empleado} en ${fechaStr}`);
+      return {
+        tieneAsistencia: false,
+        tipoAsistencia: null,
+        primeraHora: null,
+        registros: []
+      };
+    }
+    
+    // Buscar el primer registro de ENTRADA del día
+    const primeraEntrada = registrosFecha.find(r => r.tipo_registro === 'entrada');
+    
+    if (!primeraEntrada) {
+      console.log(`   ⚠️ Hay registros pero no de entrada para ${numero_empleado} en ${fechaStr}`);
+      return {
+        tieneAsistencia: false,
+        tipoAsistencia: 'falta',
+        primeraHora: null,
+        registros: registrosFecha
+      };
+    }
+    
+    // Extraer hora y minutos de la primera entrada
+    const horaParts = primeraEntrada.hora.split(':');
+    const hora = parseInt(horaParts[0]);
+    const minutos = parseInt(horaParts[1]);
+    
+    console.log(`   📝 Primera entrada de ${numero_empleado}: ${primeraEntrada.hora}`);
+    
+    // Determinar si es antes o después de las 9:00 AM
+    const esAntesDe9AM = hora < 9 || (hora === 9 && minutos === 0);
+    
+    if (esAntesDe9AM) {
+      console.log(`   ✅ Asistencia normal (antes de 9:00 AM)`);
+      return {
+        tieneAsistencia: true,
+        tipoAsistencia: 'asistencia',
+        primeraHora: primeraEntrada.hora,
+        registros: registrosFecha
+      };
+    } else {
+      console.log(`   ⏰ Retardo (después de 9:00 AM): ${primeraEntrada.hora}`);
+      return {
+        tieneAsistencia: true,
+        tipoAsistencia: 'retardo',
+        primeraHora: primeraEntrada.hora,
+        registros: registrosFecha
+      };
+    }
+    
   } catch (error) {
-    console.warn('⚠️ Error usando Intl, usando cálculo manual');
-    
-    // Fallback: cálculo manual con offset fijo
-    const offsetJalisco = -6;
-    const jaliscoTime = new Date(ahora.getTime() + (offsetJalisco * 60 * 60 * 1000));
-    
-    // Usar componentes UTC del tiempo ajustado
-    return new Date(
-      Date.UTC(
-        jaliscoTime.getUTCFullYear(),
-        jaliscoTime.getUTCMonth(),
-        jaliscoTime.getUTCDate()
-      )
-    );
+    console.error(`❌ Error en verificarAsistenciaEmpleado para ${numero_empleado}:`, error);
+    return {
+      tieneAsistencia: false,
+      tipoAsistencia: null,
+      primeraHora: null,
+      registros: []
+    };
   }
 }
 
-// 🟢 NUEVO: Comparar si una fecha es futura EN JALISCO
-function isFutureDate(dateToCheck) {
-  const hoyJalisco = getTodayJalisco();
-  
-  // Asegurarse de que dateToCheck esté en la misma zona para comparar
-  const checkDate = new Date(
-    Date.UTC(
+// 🟢 CORREGIDO: Determinar si un día es futuro basado en la fecha actual
+function esDiaFuturo(dateToCheck) {
+  try {
+    const hoy = new Date();
+    // Normalizar ambas fechas a inicio del día para comparación
+    const hoyNormalizado = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const fechaCheckNormalizada = new Date(
       dateToCheck.getFullYear(),
       dateToCheck.getMonth(),
       dateToCheck.getDate()
-    )
-  );
-  
-  const esFuturo = checkDate > hoyJalisco;
-  
-  // Debug logging
-  console.log('📅 COMPARANDO FECHAS:', {
-    hoyJalisco: formatDate(hoyJalisco),
-    fechaAComparar: formatDate(dateToCheck),
-    checkDateUTC: checkDate.toISOString(),
-    hoyJaliscoUTC: hoyJalisco.toISOString(),
-    esFuturo
-  });
-  
-  return esFuturo;
+    );
+    
+    // Si la fecha a verificar es mayor que hoy, es futuro
+    const esFuturo = fechaCheckNormalizada > hoyNormalizado;
+    
+    console.log(`📅 Verificando si es futuro:`, {
+      fechaCheck: formatDate(dateToCheck),
+      hoy: formatDate(hoy),
+      fechaCheckISO: fechaCheckNormalizada.toISOString(),
+      hoyISO: hoyNormalizado.toISOString(),
+      esFuturo
+    });
+    
+    return esFuturo;
+    
+  } catch (error) {
+    console.error('Error en esDiaFuturo:', error);
+    return false;
+  }
 }
 
 function getWeekDates(startStr, endStr) {
@@ -153,7 +152,7 @@ function getWeekDates(startStr, endStr) {
   while (current <= end) {
     const day = current.getDay();
 
-    if ([4, 5, 1, 2, 3].includes(day)) { // Lunes (1) a Viernes (5)
+    if ([4, 5, 1, 2, 3].includes(day)) {
       const fechaSinHora = new Date(
         current.getFullYear(),
         current.getMonth(),
@@ -174,7 +173,7 @@ function getWeekDates(startStr, endStr) {
 }
 
 /* =========================
-   GET - CORREGIDO PARA JALISCO
+   GET - VERSIÓN DEFINITIVA CON LÓGICA COMPLETA
 ========================= */
 
 export async function GET(req) {
@@ -189,99 +188,106 @@ export async function GET(req) {
       return NextResponse.json({ error: 'Fechas requeridas' }, { status: 400 });
     }
 
-    // 🟢 CAMBIO: Usar fecha de Jalisco, no UTC
-    const hoy = getTodayJalisco();
-    const hoyFormateado = formatDate(hoy);
-    
-    // Información de debug mejorada
-    console.log('🌍 DEBUG - INFORMACIÓN DE FECHAS Y ZONA HORARIA:');
-    console.log('Hora servidor (UTC):', new Date().toISOString());
-    console.log('Hoy en Jalisco (objeto):', hoy);
-    console.log('Hoy en Jalisco (formateado):', hoyFormateado);
-    console.log('Rango solicitado:', start, 'al', end);
-    console.log('Zona horaria servidor:', Intl.DateTimeFormat().resolvedOptions().timeZone);
+    console.log('🌍 SOLICITANDO DATOS SEMANALES:');
+    console.log('Rango:', start, 'al', end);
+    console.log('Hoy:', formatDate(new Date()));
 
-    // Obtener empleados activos ordenados por nombre
+    // Obtener empleados activos
     const empleados = await Empleado.find({ activo: true }).sort({
       nombre_completo: 1,
     });
 
-    // Obtener asistencias del rango de fechas
+    // Obtener asistencias en el rango
     const asistencias = await Asistencia.find({
       fecha: { $gte: start, $lte: end },
     });
 
-    // Obtener días de la semana (jueves a miércoles)
+    console.log(`📊 Datos obtenidos: ${empleados.length} empleados, ${asistencias.length} asistencias`);
+
+    // Obtener días de la semana
     const weekDates = getWeekDates(start, end);
     
-    console.log('📅 DÍAS DE LA SEMANA ENCONTRADOS:');
-    weekDates.forEach((wd, index) => {
-      const esFuturo = isFutureDate(wd.date);
-      const esInactivo = es5Enero2026(wd.date);
-      const fechaComparacion = formatDate(wd.date);
-      console.log(`  ${index + 1}. ${wd.dayName} ${fechaComparacion}:`, {
-        fecha: wd.date.toISOString(),
-        esFuturo,
-        esInactivo,
-        esFinDeSemana: wd.esFinDeSemana
-      });
+    console.log('📅 DÍAS DE LA SEMANA EN EL RANGO:');
+    weekDates.forEach((wd, idx) => {
+      console.log(`  ${idx + 1}. ${wd.dayName} ${wd.dateStr} (fin semana: ${wd.esFinDeSemana})`);
     });
 
     // Procesar datos para cada empleado
-    const data = empleados.map((emp) => {
+    const data = [];
+    
+    for (const emp of empleados) {
       const dias = {};
 
-      // Inicializar todos los días de la semana (jueves a miércoles)
-      weekDates.forEach((wd) => {
-        const fechaDia = wd.date;
-        const esFuturo = isFutureDate(fechaDia);
-        const esInactivo = es5Enero2026(fechaDia);
+      // Inicializar días de la semana
+      for (const wd of weekDates) {
+        // Verificar si es futuro basado en la fecha actual
+        const esFuturo = esDiaFuturo(wd.date);
+        const esInactivo = es5Enero2026(wd.date);
         const esFinDeSemana = wd.esFinDeSemana;
         
+        // Valor inicial vacío - se llenará según la verificación
         dias[wd.dayName] = {
-          valor: '', // 'X' si asistió, '' si no
+          valor: '', // 'X' para asistencia, 'R' para retardo, '' para falta
           fecha: wd.dateStr,
           esFuturo: esFuturo,
           esInactivo: esInactivo,
           esFinDeSemana: esFinDeSemana,
+          primeraHora: null, // Hora del primer registro
+          tipoRegistro: null // 'asistencia', 'retardo', o null
         };
-      });
+      }
 
-      // Marcar días con asistencia
-      asistencias
-        .filter((a) => a.numero_empleado === emp.numero_empleado)
-        .forEach((a) => {
-          const fechaAsistencia = parseDate(a.fecha);
-          Object.values(dias).forEach((diaInfo) => {
-            const fechaDia = parseDate(diaInfo.fecha);
-            // Comparar fechas sin horas
-            if (
-              fechaDia.getDate() === fechaAsistencia.getDate() &&
-              fechaDia.getMonth() === fechaAsistencia.getMonth() &&
-              fechaDia.getFullYear() === fechaAsistencia.getFullYear()
-            ) {
-              diaInfo.valor = 'X';
+      // Para cada día, verificar la asistencia del empleado
+      for (const [diaNombre, diaInfo] of Object.entries(dias)) {
+        // Solo verificar si no es futuro, inactivo o fin de semana
+        if (!diaInfo.esFuturo && !diaInfo.esInactivo && !diaInfo.esFinDeSemana) {
+          const fechaDia = diaInfo.fecha;
+          
+          // Verificar asistencia del empleado en esta fecha
+          const verificacion = await verificarAsistenciaEmpleado(emp.numero_empleado, fechaDia);
+          
+          if (verificacion.tieneAsistencia) {
+            if (verificacion.tipoAsistencia === 'asistencia') {
+              diaInfo.valor = 'X'; // Asistencia normal
+              diaInfo.tipoRegistro = 'asistencia';
+            } else if (verificacion.tipoAsistencia === 'retardo') {
+              diaInfo.valor = 'R'; // Retardo
+              diaInfo.tipoRegistro = 'retardo';
             }
-          });
-        });
+            diaInfo.primeraHora = verificacion.primeraHora;
+          } else {
+            // Si no tiene asistencia y no es futuro/inactivo/fin de semana, es falta
+            diaInfo.valor = ''; // Faltó
+            diaInfo.tipoRegistro = 'falta';
+          }
+        } else {
+          // Para días futuros, inactivos o fin de semana
+          diaInfo.valor = '';
+          diaInfo.tipoRegistro = null;
+        }
+      }
 
-      // 🔥 CALCULAR FALTAS REALES (NO incluye días futuros, 5/01/2026, ni fines de semana)
+      // Calcular faltas reales (solo días laborales sin asistencia)
       let faltas = 0;
-      let detallesFaltas = [];
+      let retardos = 0;
       
-      Object.values(dias).forEach((diaInfo) => {
+      for (const diaInfo of Object.values(dias)) {
         const esFaltaReal = (
-          diaInfo.valor === '' && // No asistió
-          !diaInfo.esFuturo &&    // No es día futuro
-          !diaInfo.esInactivo &&  // No es 5/01/2026
-          !diaInfo.esFinDeSemana  // No es sábado o domingo
+          diaInfo.valor === '' &&
+          !diaInfo.esFuturo &&
+          !diaInfo.esInactivo &&
+          !diaInfo.esFinDeSemana
         );
         
         if (esFaltaReal) {
           faltas++;
-          detallesFaltas.push(diaInfo.fecha);
         }
-      });
+        
+        // Contar retardos
+        if (diaInfo.valor === 'R') {
+          retardos++;
+        }
+      }
 
       // Preparar datos para el frontend
       const fechas = {};
@@ -289,49 +295,85 @@ export async function GET(req) {
       const esInactivo = {};
       const esFinDeSemana = {};
       const valores = {};
+      const primerasHoras = {};
+      const tiposRegistro = {};
 
-      Object.entries(dias).forEach(([dia, info]) => {
+      for (const [dia, info] of Object.entries(dias)) {
         valores[dia] = info.valor;
         fechas[dia] = info.fecha;
         esFuturo[dia] = info.esFuturo;
         esInactivo[dia] = info.esInactivo;
         esFinDeSemana[dia] = info.esFinDeSemana;
-      });
-
-      // Debug para el primer empleado
-      if (emp.numero_empleado === empleados[0]?.numero_empleado) {
-        console.log('👤 DEBUG Primer empleado:', {
-          nombre: emp.nombre_completo,
-          esFuturo,
-          fechas
-        });
+        primerasHoras[dia] = info.primeraHora;
+        tiposRegistro[dia] = info.tipoRegistro;
       }
 
-      return {
+      data.push({
         nombre: emp.nombre_completo,
         area: emp.area,
         departamento: emp.departamento || '',
-        ...valores, // jueves, viernes, lunes, etc. con 'X' o ''
-        faltas,     // Faltas reales ya calculadas
+        numero_empleado: emp.numero_empleado,
+        ...valores,
+        faltas,
+        retardos,
         fechas,
         esFuturo,
         esInactivo,
         esFinDeSemana,
-      };
-    });
+        primerasHoras,
+        tiposRegistro
+      });
+    }
+
+    // Calcular estadísticas
+    let totalFaltas = 0;
+    let totalPresentes = 0;
+    let totalRetardos = 0;
+    let totalDiasLaborales = 0;
+    
+    for (const emp of data) {
+      for (const dia of ['jueves', 'viernes', 'lunes', 'martes', 'miercoles']) {
+        const esFuturo = emp.esFuturo?.[dia];
+        const esInactivo = emp.esInactivo?.[dia];
+        const esFinDeSemana = emp.esFinDeSemana?.[dia];
+        
+        if (!esFuturo && !esInactivo && !esFinDeSemana) {
+          totalDiasLaborales++;
+          
+          if (emp[dia] === 'X') {
+            totalPresentes++;
+          } else if (emp[dia] === 'R') {
+            totalRetardos++;
+            totalPresentes++; // Los retardos cuentan como presentes
+          }
+        }
+      }
+      totalFaltas += emp.faltas;
+    }
+    
+    const porcentajeAsistencia = totalDiasLaborales > 0 
+      ? ((totalPresentes / totalDiasLaborales) * 100).toFixed(1)
+      : 0;
 
     console.log(`\n📊 RESUMEN FINAL:`);
-    console.log(`Total empleados procesados: ${data.length}`);
+    console.log(`Total empleados: ${data.length}`);
     console.log(`Total asistencias en rango: ${asistencias.length}`);
-    console.log(`Rango de fechas: ${start} al ${end}`);
-    console.log(`Fecha actual en Jalisco: ${hoyFormateado}`);
-    console.log(`Hora servidor (UTC): ${new Date().toISOString()}`);
-
-    // Calcular estadísticas generales
-    const totalFaltas = data.reduce((sum, emp) => sum + emp.faltas, 0);
-    console.log(`Total faltas reales (sin futuros ni 5/01): ${totalFaltas}`);
+    console.log(`Total días laborales: ${totalDiasLaborales}`);
+    console.log(`Total días presentes: ${totalPresentes}`);
+    console.log(`Total retardos: ${totalRetardos}`);
+    console.log(`Total faltas reales: ${totalFaltas}`);
+    console.log(`Porcentaje asistencia: ${porcentajeAsistencia}%`);
+    
+    // Mostrar ejemplo de cómo se procesó un empleado
+    if (data.length > 0) {
+      const primerEmpleado = data[0];
+      console.log(`\n🔍 EJEMPLO: ${primerEmpleado.nombre} (${primerEmpleado.numero_empleado})`);
+      console.log(`  Jueves ${primerEmpleado.fechas?.jueves}: ${primerEmpleado.jueves} (${primerEmpleado.tiposRegistro?.jueves || 'falta'})`);
+      console.log(`  Hora primera entrada: ${primerEmpleado.primerasHoras?.jueves || 'N/A'}`);
+    }
 
     return NextResponse.json(data);
+    
   } catch (e) {
     console.error('❌ Error en /api/asistencias-semana:', e);
     console.error('Stack trace:', e.stack);

@@ -1,143 +1,168 @@
-// app/api/semanas-disponibles/route.js
+// app/api/semanas-disponibles/route.js - VERSIÓN MEJORADA
 import { NextResponse } from 'next/server';
 import { conectarDB } from '@/lib/mongoose';
 import Asistencia from '@/app/models/Asistencia';
 
-export async function GET() {
-  let client;
+// Función auxiliar para convertir fecha DD/MM/YYYY a objeto Date
+function parseDate(dateStr) {
+  const [day, month, year] = dateStr.split('/').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatDate(date) {
+  const d = date.getDate().toString().padStart(2, '0');
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+// Calcular semanas basadas en fechas de asistencia
+function calcularSemanasDesdeFechas(fechasUnicas) {
+  const semanas = [];
   
+  if (fechasUnicas.length === 0) {
+    return generarSemanasPorDefecto();
+  }
+  
+  // Convertir fechas a objetos Date y ordenar
+  const fechasObjs = fechasUnicas.map(f => parseDate(f)).sort((a, b) => a - b);
+  
+  // Fecha de inicio: primer jueves (1 de enero 2026)
+  const fechaBase = new Date(2026, 0, 1); // 1 enero 2026 (jueves)
+  
+  // Encontrar primera fecha con asistencia
+  const primeraFecha = fechasObjs[0];
+  
+  // Calcular en qué semana cae la primera fecha
+  const diffTiempo = Math.abs(primeraFecha - fechaBase);
+  const diffDias = Math.ceil(diffTiempo / (1000 * 60 * 60 * 24));
+  const primeraSemana = Math.floor(diffDias / 7) + 1;
+  
+  // Encontrar última fecha con asistencia
+  const ultimaFecha = fechasObjs[fechasObjs.length - 1];
+  
+  // Calcular en qué semana cae la última fecha
+  const diffTiempoUltima = Math.abs(ultimaFecha - fechaBase);
+  const diffDiasUltima = Math.ceil(diffTiempoUltima / (1000 * 60 * 60 * 24));
+  const ultimaSemana = Math.floor(diffDiasUltima / 7) + 1;
+  
+  // Generar semanas desde la primera hasta la última
+  for (let semanaNum = primeraSemana; semanaNum <= ultimaSemana; semanaNum++) {
+    const inicioSemana = new Date(fechaBase);
+    inicioSemana.setDate(fechaBase.getDate() + ((semanaNum - 1) * 7));
+    
+    const finSemana = new Date(inicioSemana);
+    finSemana.setDate(inicioSemana.getDate() + 6);
+    
+    const inicioStr = formatDate(inicioSemana);
+    const finStr = formatDate(finSemana);
+    
+    // Contar registros en esta semana
+    const registrosEnSemana = fechasUnicas.filter(fechaStr => {
+      const fecha = parseDate(fechaStr);
+      return fecha >= inicioSemana && fecha <= finSemana;
+    }).length;
+    
+    semanas.push({
+      numero: semanaNum,
+      inicio: inicioStr,
+      fin: finStr,
+      registros: registrosEnSemana,
+      // Información adicional
+      tieneRegistros: registrosEnSemana > 0,
+      año: inicioSemana.getFullYear(),
+      mes: inicioSemana.getMonth() + 1
+    });
+  }
+  
+  // También incluir la semana actual si no está en la lista
+  const hoy = new Date();
+  const diffTiempoHoy = Math.abs(hoy - fechaBase);
+  const diffDiasHoy = Math.ceil(diffTiempoHoy / (1000 * 60 * 60 * 24));
+  const semanaActual = Math.floor(diffDiasHoy / 7) + 1;
+  
+  if (!semanas.some(s => s.numero === semanaActual)) {
+    const inicioActual = new Date(fechaBase);
+    inicioActual.setDate(fechaBase.getDate() + ((semanaActual - 1) * 7));
+    
+    const finActual = new Date(inicioActual);
+    finActual.setDate(inicioActual.getDate() + 6);
+    
+    semanas.push({
+      numero: semanaActual,
+      inicio: formatDate(inicioActual),
+      fin: formatDate(finActual),
+      registros: 0,
+      tieneRegistros: false,
+      esSemanaActual: true
+    });
+    
+    // Ordenar por número de semana
+    semanas.sort((a, b) => a.numero - b.numero);
+  }
+  
+  return semanas;
+}
+
+export async function GET() {
   try {
-    client = await conectarDB.connect(URI_MONGODB);
-    const db = client.db(DB_NAME);
+    await conectarDB();
     
     // Obtener todas las fechas únicas de asistencia
-    const asistencias = await db.collection('asistencias')
-      .find({})
-      .project({ fecha: 1, _id: 0 })
-      .toArray();
+    const asistencias = await Asistencia.find({})
+      .select('fecha')
+      .lean();
     
     // Extraer fechas únicas
     const fechasUnicas = [...new Set(asistencias.map(a => a.fecha))]
-      .filter(Boolean)
+      .filter(fecha => fecha && fecha.includes('/')) // Validar formato
       .sort();
     
-    // Si no hay fechas, devolver semanas por defecto
-    if (fechasUnicas.length === 0) {
-      return NextResponse.json(generarSemanasPorDefecto());
+    console.log(`📅 Fechas únicas encontradas: ${fechasUnicas.length}`);
+    if (fechasUnicas.length > 0) {
+      console.log(`Primera fecha: ${fechasUnicas[0]}`);
+      console.log(`Última fecha: ${fechasUnicas[fechasUnicas.length - 1]}`);
     }
     
-    // Convertir fechas string a objetos Date
-    const fechas = fechasUnicas.map(f => {
-      const [dia, mes, año] = f.split('/').map(Number);
-      return new Date(año, mes - 1, dia);
-    });
+    // Calcular semanas basadas en fechas de asistencia
+    const semanas = calcularSemanasDesdeFechas(fechasUnicas);
     
-    const fechaMinima = new Date(Math.min(...fechas));
-    const fechaMaxima = new Date(Math.max(...fechas));
-    
-    // Calcular semanas
-    const semanas = [];
-    const fechaInicio = new Date(2026, 0, 5); // 5 de enero 2026 (Lunes)
-    
-    // Calcular número de semanas entre fecha inicio y fecha máxima
-    const diffTime = Math.abs(fechaMaxima - fechaInicio);
-    const diffWeeks = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7));
-    
-    // Generar semanas desde la 1 hasta la última con datos
-    for (let semanaNum = 1; semanaNum <= diffWeeks; semanaNum++) {
-      const inicioSemana = new Date(fechaInicio);
-      inicioSemana.setDate(fechaInicio.getDate() + ((semanaNum - 1) * 7));
-      
-      const finSemana = new Date(inicioSemana);
-      finSemana.setDate(inicioSemana.getDate() + 4); // Lunes a Viernes
-      
-      // Formatear fechas
-      const formatDate = (date) => {
-        const dia = date.getDate().toString().padStart(2, '0');
-        const mes = (date.getMonth() + 1).toString().padStart(2, '0');
-        const año = date.getFullYear();
-        return `${dia}/${mes}/${año}`;
-      };
-      
-      const inicioStr = formatDate(inicioSemana);
-      const finStr = formatDate(finSemana);
-      
-      // Contar registros en esta semana
-      const registrosEnSemana = asistencias.filter(a => {
-        const fechaRegistro = a.fecha;
-        return fechaRegistro >= inicioStr && fechaRegistro <= finStr;
-      }).length;
-      
-      // Solo incluir semanas con registros
-      if (registrosEnSemana > 0) {
-        semanas.push({
-          numero: semanaNum,
-          inicio: inicioStr,
-          fin: finStr,
-          registros: registrosEnSemana
-        });
-      }
-    }
-    
-    // Si no hay semanas con datos, devolver semanas por defecto
-    if (semanas.length === 0) {
-      return NextResponse.json(generarSemanasPorDefecto());
-    }
+    console.log(`📊 Semanas generadas: ${semanas.length}`);
     
     return NextResponse.json(semanas);
     
   } catch (error) {
-    console.error('Error en API semanas-disponibles:', error);
+    console.error('Error en semanas-disponibles:', error);
     // En caso de error, devolver semanas por defecto
     return NextResponse.json(generarSemanasPorDefecto());
-  } finally {
-    if (client) {
-      await client.close();
-    }
   }
 }
 
-// Función para generar semanas por defecto (si no hay datos)
+// Función para generar semanas por defecto
 function generarSemanasPorDefecto() {
   const semanas = [];
-  const fechaBase = new Date(2026, 0, 1); // 1 de enero 2026 (jueves)
-  
-  // Generar 4 semanas por defecto (o más según necesites)
-  const totalSemanas = 8; // 8 semanas para tener margen
+  const fechaBase = new Date(2026, 0, 1);
+  const totalSemanas = 8;
   
   for (let semanaNum = 1; semanaNum <= totalSemanas; semanaNum++) {
     const inicioSemana = new Date(fechaBase);
     inicioSemana.setDate(fechaBase.getDate() + ((semanaNum - 1) * 7));
     
     const finSemana = new Date(inicioSemana);
-    finSemana.setDate(inicioSemana.getDate() + 6); // Jueves + 6 días = Miércoles
-    
-    const formatDate = (date) => {
-      const dia = date.getDate().toString().padStart(2, '0');
-      const mes = (date.getMonth() + 1).toString().padStart(2, '0');
-      const año = date.getFullYear();
-      return `${dia}/${mes}/${año}`;
-    };
+    finSemana.setDate(inicioSemana.getDate() + 6);
     
     const inicioStr = formatDate(inicioSemana);
     const finStr = formatDate(finSemana);
-    
-    // Verificar si esta semana ya pasó o es futura
-    const hoy = new Date();
-    const semanaTermino = new Date(finSemana);
-    semanaTermino.setHours(23, 59, 59); // Fin del día miércoles
-    
-    const registros = 0; // Placeholder, en realidad contarías de la DB
     
     semanas.push({
       numero: semanaNum,
       inicio: inicioStr,
       fin: finStr,
-      registros: registros,
-      // Información adicional útil
+      registros: 0,
+      tieneRegistros: false,
       año: inicioSemana.getFullYear(),
       mes: inicioSemana.getMonth() + 1,
-      dias: ['Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar', 'Mié']
+      esPorDefecto: true
     });
   }
   

@@ -301,37 +301,46 @@ export default function AdminPage() {
   };
 
   // Función para cargar semanas disponibles
-  const fetchAvailableWeeks = async () => {
-    try {
-      console.log('📅 Cargando semanas disponibles...');
-      const response = await fetch('/api/semanas-disponibles');
+  // En AdminPage.js, actualiza la función fetchAvailableWeeks
+const fetchAvailableWeeks = async () => {
+  try {
+    console.log('📅 Cargando semanas disponibles basadas en asistencias...');
+    const response = await fetch('/api/semanas-disponibles');
+    
+    if (response.ok) {
+      const semanas = await response.json();
+      console.log(`✅ ${semanas.length} semanas cargadas desde asistencias`);
       
-      if (response.ok) {
-        const semanas = await response.json();
-        console.log(`✅ ${semanas.length} semanas cargadas`);
-        
-        // Ordenar por número de semana
-        const semanasOrdenadas = semanas.sort((a, b) => a.numero - b.numero);
+      // Filtrar solo semanas que tengan registros o sean la actual
+      const semanasConDatos = semanas.filter(s => s.tieneRegistros || s.esSemanaActual);
+      
+      if (semanasConDatos.length > 0) {
+        const semanasOrdenadas = semanasConDatos.sort((a, b) => b.numero - a.numero);
         setAvailableWeeks(semanasOrdenadas);
         
-        // Si no hay semana seleccionada, seleccionar la primera
-        if (semanasOrdenadas.length > 0 && !selectedWeek) {
-          setSelectedWeek(semanasOrdenadas[0].numero);
-          setWeekRange({
-            start: semanasOrdenadas[0].inicio,
-            end: semanasOrdenadas[0].fin
-          });
-        }
+        // Seleccionar la semana más reciente con datos
+        const semanaMasReciente = semanasOrdenadas[0];
+        setSelectedWeek(semanaMasReciente.numero);
+        setWeekRange({
+          start: semanaMasReciente.inicio,
+          end: semanaMasReciente.fin
+        });
+        
+        // Cargar datos de esa semana
+        fetchWeeklyData(semanaMasReciente.inicio, semanaMasReciente.fin);
       } else {
-        console.error('❌ Error cargando semanas');
-        // Crear semanas por defecto si falla la API
+        // Usar semanas por defecto si no hay datos
         generarSemanasPorDefecto();
       }
-    } catch (error) {
-      console.error('❌ Error en fetchAvailableWeeks:', error);
+    } else {
+      console.error('❌ Error cargando semanas');
       generarSemanasPorDefecto();
     }
-  };
+  } catch (error) {
+    console.error('❌ Error en fetchAvailableWeeks:', error);
+    generarSemanasPorDefecto();
+  }
+};
 
   // Función para generar semanas por defecto
   const generarSemanasPorDefecto = () => {
@@ -530,43 +539,135 @@ export default function AdminPage() {
   };
 
  // Función para cargar datos semanales
-  const fetchWeeklyData = async (startDate, endDate) => {
-    setWeeklyLoading(true);
+  // Función para cargar datos semanales - VERSIÓN COMPLETA CON DEBUG
+const fetchWeeklyData = async (startDate, endDate) => {
+  setWeeklyLoading(true);
+  try {
+    console.log('📅 ========================================');
+    console.log('📅 SOLICITANDO DATOS SEMANALES');
+    console.log('📅 ========================================');
+    console.log('Rango solicitado:', startDate, 'al', endDate);
+    console.log('Fecha actual (Jalisco):', getCurrentJaliscoDate());
+    console.log('Hora actual (Jalisco):', getCurrentJaliscoTime());
+    console.log('Semana seleccionada:', selectedWeek);
+    
+    // 🟢 PRIMERO: Verificar registros de HOY
+    const hoy = getCurrentJaliscoDate();
+    console.log('\n🔍 PASO 1: Verificando registros de HOY:', hoy);
+    
     try {
-      console.log('📅 Solicitando datos semanales para:', { startDate, endDate });
-      
-      const response = await fetch(`/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`, {
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log('✅ Datos semanales recibidos:', data);
-      
-      if (data.length > 0) {
-        console.log('📝 Ejemplo de datos recibidos:', {
-          nombre: data[0].nombre,
-          area: data[0].area,
-          departamento: data[0].departamento, // Verificar si viene departamento
-          lunes: data[0].lunes,
-          martes: data[0].martes,
-          faltas: data[0].faltas
-        });
-      }
-      
-      // Si los datos no vienen con departamento, combinarlos con empleados
-      let dataConDepartamento = data;
-      
-      // Verificar si los datos ya traen departamento
-      if (data.length > 0 && !data[0].departamento) {
-        console.log('⚠️ Los datos semanales no incluyen departamento, combinando con empleados...');
+      const hoyResponse = await fetch(`/api/asistencias?fecha=${hoy}&limite=100`);
+      if (hoyResponse.ok) {
+        const registrosHoy = await hoyResponse.json();
+        console.log(`📝 Total registros HOY: ${registrosHoy.length}`);
         
-        // Obtener empleados para combinar con departamento
+        if (registrosHoy.length > 0) {
+          // Agrupar por empleado
+          const empleadosConRegistro = [...new Set(registrosHoy.map(r => r.numero_empleado))];
+          console.log(`👥 Empleados únicos con registro HOY: ${empleadosConRegistro.length}`);
+          
+          // Mostrar primeros 5 registros
+          registrosHoy.slice(0, 3).forEach(reg => {
+            console.log(`   - ${reg.numero_empleado}: ${reg.nombre_empleado} - ${reg.hora} (${reg.tipo_registro})`);
+          });
+        } else {
+          console.log('⚠️ NO hay registros de asistencia para hoy');
+        }
+      }
+    } catch (error) {
+      console.error('Error verificando registros hoy:', error);
+    }
+    
+    // 🟢 SEGUNDO: Solicitar datos semanales
+    console.log('\n🔍 PASO 2: Solicitando datos semanales...');
+    const response = await fetch(`/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`, {
+      headers: {
+        'Cache-Control': 'no-cache'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log(`✅ Datos semanales recibidos: ${data.length} empleados`);
+    
+    // 🟢 TERCERO: Análisis detallado de los datos
+    console.log('\n🔍 PASO 3: Análisis de datos recibidos');
+    console.log('─────────────────────────────────────────────');
+    
+    if (data.length === 0) {
+      console.log('⚠️ La API devolvió 0 empleados');
+      setWeeklyData([]);
+      setWeekStats({
+        totalEmpleados: 0,
+        totalPresentes: 0,
+        totalFaltas: 0,
+        porcentajeAsistencia: 0
+      });
+      return;
+    }
+    
+    // Contadores para análisis
+    let conXJueves = 0;
+    let sinXJueves = 0;
+    let esFuturoJueves = 0;
+    let esInactivoJueves = 0;
+    let esFinDeSemanaJueves = 0;
+    
+    // Analizar los primeros 5 empleados en detalle
+    console.log('📊 ANÁLISIS DETALLADO (primeros 5 empleados):');
+    data.slice(0, 5).forEach((emp, idx) => {
+      console.log(`${idx + 1}. ${emp.nombre}:`);
+      console.log(`   jueves: "${emp.jueves}" (${emp.jueves === 'X' ? '✓ ASISTIÓ' : '✗ FALTA'})`);
+      console.log(`   esFuturo.jueves: ${emp.esFuturo?.jueves}`);
+      console.log(`   esInactivo.jueves: ${emp.esInactivo?.jueves}`);
+      console.log(`   esFinDeSemana.jueves: ${emp.esFinDeSemana?.jueves}`);
+      console.log(`   fecha.jueves: ${emp.fechas?.jueves}`);
+      console.log(`   faltas totales: ${emp.faltas}`);
+      console.log('   ---');
+      
+      // Actualizar contadores
+      if (emp.jueves === 'X') conXJueves++;
+      else sinXJueves++;
+      
+      if (emp.esFuturo?.jueves) esFuturoJueves++;
+      if (emp.esInactivo?.jueves) esInactivoJueves++;
+      if (emp.esFinDeSemana?.jueves) esFinDeSemanaJueves++;
+    });
+    
+    // Estadísticas generales
+    console.log('\n📈 ESTADÍSTICAS GENERALES:');
+    console.log(`Total empleados: ${data.length}`);
+    console.log(`Con 'X' en jueves: ${conXJueves} (${((conXJueves/data.length)*100).toFixed(1)}%)`);
+    console.log(`Sin 'X' en jueves: ${sinXJueves} (${((sinXJueves/data.length)*100).toFixed(1)}%)`);
+    console.log(`Marcados como futuro: ${esFuturoJueves}`);
+    console.log(`Marcados como inactivo: ${esInactivoJueves}`);
+    console.log(`Marcados como fin de semana: ${esFinDeSemanaJueves}`);
+    
+    // Verificar si las fechas del jueves son HOY
+    console.log('\n🔍 VERIFICANDO FECHAS DEL JUEVES:');
+    const hoyFormatted = getCurrentJaliscoDate();
+    const empleadosConFechaHoy = data.filter(emp => emp.fechas?.jueves === hoyFormatted);
+    console.log(`Empleados con fecha jueves = hoy (${hoyFormatted}): ${empleadosConFechaHoy.length}`);
+    
+    if (empleadosConFechaHoy.length > 0 && empleadosConFechaHoy.length < 3) {
+      empleadosConFechaHoy.forEach(emp => {
+        console.log(`   - ${emp.nombre}: jueves="${emp.jueves}", esFuturo=${emp.esFuturo?.jueves}`);
+      });
+    }
+    
+    // 🟢 CUARTO: Procesar datos para el frontend
+    console.log('\n🔍 PASO 4: Procesando datos para frontend...');
+    
+    // Si los datos no vienen con departamento, combinarlos con empleados
+    let dataConDepartamento = data;
+    
+    if (data.length > 0 && !data[0].departamento) {
+      console.log('⚠️ Los datos semanales no incluyen departamento, combinando con empleados...');
+      
+      try {
         const employeesResponse = await fetch('/api/empleados');
         if (employeesResponse.ok) {
           const empleados = await employeesResponse.json();
@@ -589,39 +690,80 @@ export default function AdminPage() {
               numero_empleado: empleadoInfo.numero_empleado || item.numero_empleado || ''
             };
           });
+          console.log(`✅ Datos combinados con empleados: ${dataConDepartamento.length} registros`);
         }
+      } catch (error) {
+        console.error('Error combinando con empleados:', error);
       }
-      
-      // Combinar con observaciones
-      const dataConObservaciones = dataConDepartamento.map(item => ({
-        ...item,
-        observacion: observaciones[item.id] || ''
-      }));
-      
-      // Filtrar solo empleados activos (si hay empleados cargados)
-      let filteredData = dataConObservaciones;
-      if (employees.length > 0) {
-        filteredData = dataConObservaciones.filter(item => 
-          employees.some(emp => emp.nombre_completo === item.nombre && emp.activo)
-        );
-        console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
-      }
-      
-      // Calcular estadísticas de la semana
-      const estadisticas = calcularEstadisticasSemana(filteredData);
-      console.log('📊 Estadísticas calculadas:', estadisticas);
-      setWeekStats(estadisticas);
-      
-      setWeeklyData(filteredData);
-      
-    } catch (error) {
-      console.error('❌ Error cargando datos semanales:', error);
-      alert('Error al cargar datos semanales: ' + error.message);
-      setWeeklyData([]);
-    } finally {
-      setWeeklyLoading(false);
     }
-  };
+    
+    // Combinar con observaciones
+    const dataConObservaciones = dataConDepartamento.map(item => ({
+      ...item,
+      observacion: observaciones[item.id] || ''
+    }));
+    
+    // Filtrar solo empleados activos (si hay empleados cargados)
+    let filteredData = dataConObservaciones;
+    if (employees.length > 0) {
+      filteredData = dataConObservaciones.filter(item => 
+        employees.some(emp => emp.nombre_completo === item.nombre && emp.activo)
+      );
+      console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
+    }
+    
+    // Calcular estadísticas de la semana
+    const estadisticas = calcularEstadisticasSemana(filteredData);
+    console.log('\n📊 ESTADÍSTICAS CALCULADAS:');
+    console.log(`Total empleados: ${estadisticas.totalEmpleados}`);
+    console.log(`Total presentes: ${estadisticas.totalPresentes}`);
+    console.log(`Total faltas: ${estadisticas.totalFaltas}`);
+    console.log(`Días laborales totales: ${estadisticas.totalDiasLaborales || 'N/A'}`);
+    console.log(`Porcentaje asistencia: ${estadisticas.porcentajeAsistencia}%`);
+    
+    setWeekStats(estadisticas);
+    setWeeklyData(filteredData);
+    
+    // 🟢 QUINTO: Verificación final
+    console.log('\n🔍 PASO 5: Verificación final');
+    console.log('─────────────────────────────────────────────');
+    
+    // Verificar qué se mostrará en la tabla
+    if (filteredData.length > 0) {
+      const primerEmpleado = filteredData[0];
+      console.log('Primer empleado en tabla será:');
+      console.log(`  Nombre: ${primerEmpleado.nombre}`);
+      console.log(`  jueves: "${primerEmpleado.jueves}"`);
+      console.log(`  esFuturo.jueves: ${primerEmpleado.esFuturo?.jueves}`);
+      console.log(`  esInactivo.jueves: ${primerEmpleado.esInactivo?.jueves}`);
+      console.log(`  esFinDeSemana.jueves: ${primerEmpleado.esFinDeSemana?.jueves}`);
+      console.log(`  Se mostrará: ${primerEmpleado.esFuturo?.jueves ? 'RELOJ (futuro)' : 
+                    primerEmpleado.esInactivo?.jueves ? 'GUION (inactivo)' :
+                    primerEmpleado.esFinDeSemana?.jueves ? 'FS (fin semana)' :
+                    primerEmpleado.jueves === 'X' ? 'CHECK (asistió)' : 'X (falta)'}`);
+    }
+    
+    console.log('\n✅ fetchWeeklyData COMPLETADO');
+    console.log('========================================\n');
+    
+  } catch (error) {
+    console.error('❌ ERROR en fetchWeeklyData:', error);
+    console.error('Stack trace:', error.stack);
+    
+    // Mostrar error específico
+    if (error.message.includes('Failed to fetch')) {
+      alert('Error de conexión al servidor. Verifica tu conexión a internet.');
+    } else if (error.message.includes('404')) {
+      alert('La API no está disponible. Contacta al administrador.');
+    } else {
+      alert(`Error al cargar datos semanales: ${error.message}`);
+    }
+    
+    setWeeklyData([]);
+  } finally {
+    setWeeklyLoading(false);
+  }
+};
 
   // Función corregida para calcular estadísticas de la semana
   const calcularEstadisticasSemana = (datos) => {
