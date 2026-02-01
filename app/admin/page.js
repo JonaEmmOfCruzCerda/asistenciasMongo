@@ -102,6 +102,14 @@ export default function AdminPage() {
   const [currentCheckPage, setCurrentCheckPage] = useState(1);
   const [currentWeeklyPage, setCurrentWeeklyPage] = useState(1);
 
+  // ESTADOS PARA CONTROLAR QUÉ TABLAS ESTÁN ABIERTAS
+  const [openTables, setOpenTables] = useState({
+    verification: false,     // Verificación de asistencia
+    weekly: false,          // Reporte semanal
+    employees: false,      // Gestión de empleados
+    attendance: false      // Registros de asistencia
+  });
+
   // Referencias para menús desplegables
   const exportCheckMenuRef = useRef(null);
   const exportAttendanceMenuRef = useRef(null);
@@ -305,46 +313,45 @@ export default function AdminPage() {
   };
 
   // Función para cargar semanas disponibles
-  // En AdminPage.js, actualiza la función fetchAvailableWeeks
-const fetchAvailableWeeks = async () => {
-  try {
-    console.log('📅 Cargando semanas disponibles basadas en asistencias...');
-    const response = await fetch('/api/semanas-disponibles');
-    
-    if (response.ok) {
-      const semanas = await response.json();
-      console.log(`✅ ${semanas.length} semanas cargadas desde asistencias`);
+  const fetchAvailableWeeks = async () => {
+    try {
+      console.log('📅 Cargando semanas disponibles basadas en asistencias...');
+      const response = await fetch('/api/semanas-disponibles');
       
-      // Filtrar solo semanas que tengan registros o sean la actual
-      const semanasConDatos = semanas.filter(s => s.tieneRegistros || s.esSemanaActual);
-      
-      if (semanasConDatos.length > 0) {
-        const semanasOrdenadas = semanasConDatos.sort((a, b) => b.numero - a.numero);
-        setAvailableWeeks(semanasOrdenadas);
+      if (response.ok) {
+        const semanas = await response.json();
+        console.log(`✅ ${semanas.length} semanas cargadas desde asistencias`);
         
-        // Seleccionar la semana más reciente con datos
-        const semanaMasReciente = semanasOrdenadas[0];
-        setSelectedWeek(semanaMasReciente.numero);
-        setWeekRange({
-          start: semanaMasReciente.inicio,
-          end: semanaMasReciente.fin
-        });
+        // Filtrar solo semanas que tengan registros o sean la actual
+        const semanasConDatos = semanas.filter(s => s.tieneRegistros || s.esSemanaActual);
         
-        // Cargar datos de esa semana
-        fetchWeeklyData(semanaMasReciente.inicio, semanaMasReciente.fin);
+        if (semanasConDatos.length > 0) {
+          const semanasOrdenadas = semanasConDatos.sort((a, b) => b.numero - a.numero);
+          setAvailableWeeks(semanasOrdenadas);
+          
+          // Seleccionar la semana más reciente con datos
+          const semanaMasReciente = semanasOrdenadas[0];
+          setSelectedWeek(semanaMasReciente.numero);
+          setWeekRange({
+            start: semanaMasReciente.inicio,
+            end: semanaMasReciente.fin
+          });
+          
+          // Cargar datos de esa semana
+          fetchWeeklyData(semanaMasReciente.inicio, semanaMasReciente.fin);
+        } else {
+          // Usar semanas por defecto si no hay datos
+          generarSemanasPorDefecto();
+        }
       } else {
-        // Usar semanas por defecto si no hay datos
+        console.error('❌ Error cargando semanas');
         generarSemanasPorDefecto();
       }
-    } else {
-      console.error('❌ Error cargando semanas');
+    } catch (error) {
+      console.error('❌ Error en fetchAvailableWeeks:', error);
       generarSemanasPorDefecto();
     }
-  } catch (error) {
-    console.error('❌ Error en fetchAvailableWeeks:', error);
-    generarSemanasPorDefecto();
-  }
-};
+  };
 
   // Función para generar semanas por defecto
   const generarSemanasPorDefecto = () => {
@@ -464,7 +471,6 @@ const fetchAvailableWeeks = async () => {
   };
 
   // Función: Guardar observación con tipo de falta
-  // Función: Guardar observación con tipo de falta (VERSIÓN DEFINITIVA)
   const saveObservacion = async (employeeId, text, tipoFalta, fechaEspecifica = null) => {
     // Validar que al menos haya un tipo de falta o una observación
     const textValue = text?.trim() || '';
@@ -488,10 +494,9 @@ const fetchAvailableWeeks = async () => {
         fecha
       });
       
-      // SOLUCIÓN DEFINITIVA: Enviar siempre string, nunca null
       const datos = {
         employeeId: employeeId,
-        text: textValue, // Siempre string (vacío o con contenido)
+        text: textValue,
         tipoFalta: tipoFaltaValue,
         fecha: fecha,
         adminId: 'admin'
@@ -542,8 +547,8 @@ const fetchAvailableWeeks = async () => {
     }
   };
 
- // Función para cargar datos semanales
-  // Función para cargar datos semanales - VERSIÓN COMPLETA CON DEBUG
+  // Función para cargar datos semanales
+  // Función para cargar datos semanales - VERSIÓN CORREGIDA
 const fetchWeeklyData = async (startDate, endDate) => {
   setWeeklyLoading(true);
   try {
@@ -554,271 +559,251 @@ const fetchWeeklyData = async (startDate, endDate) => {
     console.log('Fecha actual (Jalisco):', getCurrentJaliscoDate());
     console.log('Hora actual (Jalisco):', getCurrentJaliscoTime());
     console.log('Semana seleccionada:', selectedWeek);
-    
-    // 🟢 PRIMERO: Verificar registros de HOY
-    const hoy = getCurrentJaliscoDate();
-    console.log('\n🔍 PASO 1: Verificando registros de HOY:', hoy);
-    
+
+    // Verificar si las fechas son válidas
+    if (!startDate || !endDate) {
+      console.error('❌ Fechas no válidas:', { startDate, endDate });
+      throw new Error('Fechas no válidas');
+    }
+
+    // Construir la URL
+    const apiUrl = `/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`;
+    console.log('🌐 URL de solicitud:', apiUrl);
+
+    // Configurar timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos
+
     try {
-      const hoyResponse = await fetch(`/api/asistencias?fecha=${hoy}&limite=100`);
-      if (hoyResponse.ok) {
-        const registrosHoy = await hoyResponse.json();
-        console.log(`📝 Total registros HOY: ${registrosHoy.length}`);
-        
-        if (registrosHoy.length > 0) {
-          // Agrupar por empleado
-          const empleadosConRegistro = [...new Set(registrosHoy.map(r => r.numero_empleado))];
-          console.log(`👥 Empleados únicos con registro HOY: ${empleadosConRegistro.length}`);
-          
-          // Mostrar primeros 5 registros
-          registrosHoy.slice(0, 3).forEach(reg => {
-            console.log(`   - ${reg.numero_empleado}: ${reg.nombre_empleado} - ${reg.hora} (${reg.tipo_registro})`);
-          });
-        } else {
-          console.log('⚠️ NO hay registros de asistencia para hoy');
+      const response = await fetch(apiUrl, {
+        signal: controller.signal,
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log('📡 Estado de respuesta:', response.status, response.statusText);
+
+      if (!response.ok) {
+        // Intentar obtener más detalles del error
+        let errorDetails = '';
+        try {
+          const errorData = await response.json();
+          errorDetails = errorData.error || errorData.details || '';
+        } catch {
+          // Si no se puede parsear como JSON, usar texto
+          errorDetails = await response.text();
+        }
+
+        console.error('❌ Error del servidor:', {
+          status: response.status,
+          statusText: response.statusText,
+          details: errorDetails
+        });
+
+        throw new Error(`Error del servidor: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log(`✅ Datos semanales recibidos: ${data.length} empleados`);
+
+      if (!Array.isArray(data)) {
+        console.error('❌ Datos recibidos no son un array:', data);
+        throw new Error('Formato de datos inválido');
+      }
+
+      if (data.length === 0) {
+        console.log('⚠️ La API devolvió 0 empleados');
+        setWeeklyData([]);
+        setWeekStats({
+          totalEmpleados: 0,
+          totalPresentes: 0,
+          totalFaltas: 0,
+          porcentajeAsistencia: 0
+        });
+        return;
+      }
+
+      // Procesar los datos recibidos
+      let processedData = data;
+
+      // Si los datos no incluyen departamento, intentar combinarlos con empleados
+      if (data.length > 0 && (!data[0].departamento || data[0].departamento === '')) {
+        console.log('⚠️ Los datos no incluyen departamento, combinando con empleados...');
+        try {
+          const employeesResponse = await fetch('/api/empleados');
+          if (employeesResponse.ok) {
+            const empleados = await employeesResponse.json();
+
+            // Crear mapa de empleados por nombre
+            const employeesMap = {};
+            empleados.forEach(emp => {
+              employeesMap[emp.nombre_completo] = {
+                departamento: emp.departamento || '',
+                numero_empleado: emp.numero_empleado || ''
+              };
+            });
+
+            // Combinar datos
+            processedData = data.map(item => {
+              const empleadoInfo = employeesMap[item.nombre] || {};
+              return {
+                ...item,
+                departamento: empleadoInfo.departamento || item.departamento || '',
+                numero_empleado: empleadoInfo.numero_empleado || item.numero_empleado || ''
+              };
+            });
+            console.log(`✅ Datos combinados con empleados: ${processedData.length} registros`);
+          }
+        } catch (error) {
+          console.error('Error combinando con empleados:', error);
+          // Continuar con los datos originales
+          processedData = data;
         }
       }
-    } catch (error) {
-      console.error('Error verificando registros hoy:', error);
-    }
-    
-    // 🟢 SEGUNDO: Solicitar datos semanales
-    console.log('\n🔍 PASO 2: Solicitando datos semanales...');
-    const response = await fetch(`/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`, {
-      headers: {
-        'Cache-Control': 'no-cache'
+
+      // Combinar con observaciones si es necesario
+      const dataConObservaciones = processedData.map(item => ({
+        ...item,
+        observacion: observaciones[item.numero_empleado || item.id] || ''
+      }));
+
+      // Filtrar solo empleados activos (si tenemos la lista de empleados)
+      let filteredData = dataConObservaciones;
+      if (employees.length > 0) {
+        filteredData = dataConObservaciones.filter(item => {
+          const employee = employees.find(emp => 
+            emp.nombre_completo === item.nombre || 
+            emp.numero_empleado === item.numero_empleado
+          );
+          return employee && employee.activo;
+        });
+        console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
       }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log(`✅ Datos semanales recibidos: ${data.length} empleados`);
-    
-    // 🟢 TERCERO: Análisis detallado de los datos
-    console.log('\n🔍 PASO 3: Análisis de datos recibidos');
-    console.log('─────────────────────────────────────────────');
-    
-    if (data.length === 0) {
-      console.log('⚠️ La API devolvió 0 empleados');
-      setWeeklyData([]);
-      setWeekStats({
-        totalEmpleados: 0,
-        totalPresentes: 0,
-        totalFaltas: 0,
-        porcentajeAsistencia: 0
-      });
-      return;
-    }
-    
-    // Contadores para análisis
-    let conXJueves = 0;
-    let sinXJueves = 0;
-    let esFuturoJueves = 0;
-    let esInactivoJueves = 0;
-    let esFinDeSemanaJueves = 0;
-    
-    // Analizar los primeros 5 empleados en detalle
-    console.log('📊 ANÁLISIS DETALLADO (primeros 5 empleados):');
-    data.slice(0, 5).forEach((emp, idx) => {
-      console.log(`${idx + 1}. ${emp.nombre}:`);
-      console.log(`   jueves: "${emp.jueves}" (${emp.jueves === 'X' ? '✓ ASISTIÓ' : '✗ FALTA'})`);
-      console.log(`   esFuturo.jueves: ${emp.esFuturo?.jueves}`);
-      console.log(`   esInactivo.jueves: ${emp.esInactivo?.jueves}`);
-      console.log(`   esFinDeSemana.jueves: ${emp.esFinDeSemana?.jueves}`);
-      console.log(`   fecha.jueves: ${emp.fechas?.jueves}`);
-      console.log(`   faltas totales: ${emp.faltas}`);
-      console.log('   ---');
+
+      // Calcular estadísticas de la semana
+      const estadisticas = calcularEstadisticasSemana(filteredData);
       
-      // Actualizar contadores
-      if (emp.jueves === 'X') conXJueves++;
-      else sinXJueves++;
+      console.log('\n📊 ESTADÍSTICAS CALCULADAS:');
+      console.log(`Total empleados: ${estadisticas.totalEmpleados}`);
+      console.log(`Total presentes: ${estadisticas.totalPresentes}`);
+      console.log(`Total faltas: ${estadisticas.totalFaltas}`);
+      console.log(`Porcentaje asistencia: ${estadisticas.porcentajeAsistencia}%`);
+
+      // Establecer los datos
+      setWeekStats(estadisticas);
+      setWeeklyData(filteredData);
+
+      console.log('\n✅ fetchWeeklyData COMPLETADO EXITOSAMENTE');
+      console.log('========================================\n');
+
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
       
-      if (emp.esFuturo?.jueves) esFuturoJueves++;
-      if (emp.esInactivo?.jueves) esInactivoJueves++;
-      if (emp.esFinDeSemana?.jueves) esFinDeSemanaJueves++;
-    });
-    
-    // Estadísticas generales
-    console.log('\n📈 ESTADÍSTICAS GENERALES:');
-    console.log(`Total empleados: ${data.length}`);
-    console.log(`Con 'X' en jueves: ${conXJueves} (${((conXJueves/data.length)*100).toFixed(1)}%)`);
-    console.log(`Sin 'X' en jueves: ${sinXJueves} (${((sinXJueves/data.length)*100).toFixed(1)}%)`);
-    console.log(`Marcados como futuro: ${esFuturoJueves}`);
-    console.log(`Marcados como inactivo: ${esInactivoJueves}`);
-    console.log(`Marcados como fin de semana: ${esFinDeSemanaJueves}`);
-    
-    // Verificar si las fechas del jueves son HOY
-    console.log('\n🔍 VERIFICANDO FECHAS DEL JUEVES:');
-    const hoyFormatted = getCurrentJaliscoDate();
-    const empleadosConFechaHoy = data.filter(emp => emp.fechas?.jueves === hoyFormatted);
-    console.log(`Empleados con fecha jueves = hoy (${hoyFormatted}): ${empleadosConFechaHoy.length}`);
-    
-    if (empleadosConFechaHoy.length > 0 && empleadosConFechaHoy.length < 3) {
-      empleadosConFechaHoy.forEach(emp => {
-        console.log(`   - ${emp.nombre}: jueves="${emp.jueves}", esFuturo=${emp.esFuturo?.jueves}`);
-      });
-    }
-    
-    // 🟢 CUARTO: Procesar datos para el frontend
-    console.log('\n🔍 PASO 4: Procesando datos para frontend...');
-    
-    // Si los datos no vienen con departamento, combinarlos con empleados
-    let dataConDepartamento = data;
-    
-    if (data.length > 0 && !data[0].departamento) {
-      console.log('⚠️ Los datos semanales no incluyen departamento, combinando con empleados...');
-      
-      try {
-        const employeesResponse = await fetch('/api/empleados');
-        if (employeesResponse.ok) {
-          const empleados = await employeesResponse.json();
-          
-          // Crear mapa de empleados por nombre
-          const employeesMap = {};
-          empleados.forEach(emp => {
-            employeesMap[emp.nombre_completo] = {
-              departamento: emp.departamento || '',
-              numero_empleado: emp.numero_empleado || ''
-            };
-          });
-          
-          // Combinar datos
-          dataConDepartamento = data.map(item => {
-            const empleadoInfo = employeesMap[item.nombre] || {};
-            return {
-              ...item,
-              departamento: empleadoInfo.departamento || item.departamento || '',
-              numero_empleado: empleadoInfo.numero_empleado || item.numero_empleado || ''
-            };
-          });
-          console.log(`✅ Datos combinados con empleados: ${dataConDepartamento.length} registros`);
-        }
-      } catch (error) {
-        console.error('Error combinando con empleados:', error);
+      if (fetchError.name === 'AbortError') {
+        console.error('⏰ Timeout: La solicitud tardó demasiado en responder');
+        alert('La solicitud está tardando demasiado. Por favor, verifica tu conexión a internet.');
+      } else {
+        throw fetchError; // Re-lanzar para que sea capturado por el catch externo
       }
     }
-    
-    // Combinar con observaciones
-    const dataConObservaciones = dataConDepartamento.map(item => ({
-      ...item,
-      observacion: observaciones[item.id] || ''
-    }));
-    
-    // Filtrar solo empleados activos (si hay empleados cargados)
-    let filteredData = dataConObservaciones;
-    if (employees.length > 0) {
-      filteredData = dataConObservaciones.filter(item => 
-        employees.some(emp => emp.nombre_completo === item.nombre && emp.activo)
-      );
-      console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
-    }
-    
-    // Calcular estadísticas de la semana
-    const estadisticas = calcularEstadisticasSemana(filteredData);
-    console.log('\n📊 ESTADÍSTICAS CALCULADAS:');
-    console.log(`Total empleados: ${estadisticas.totalEmpleados}`);
-    console.log(`Total presentes: ${estadisticas.totalPresentes}`);
-    console.log(`Total faltas: ${estadisticas.totalFaltas}`);
-    console.log(`Días laborales totales: ${estadisticas.totalDiasLaborales || 'N/A'}`);
-    console.log(`Porcentaje asistencia: ${estadisticas.porcentajeAsistencia}%`);
-    
-    setWeekStats(estadisticas);
-    setWeeklyData(filteredData);
-    
-    // 🟢 QUINTO: Verificación final
-    console.log('\n🔍 PASO 5: Verificación final');
-    console.log('─────────────────────────────────────────────');
-    
-    // Verificar qué se mostrará en la tabla
-    if (filteredData.length > 0) {
-      const primerEmpleado = filteredData[0];
-      console.log('Primer empleado en tabla será:');
-      console.log(`  Nombre: ${primerEmpleado.nombre}`);
-      console.log(`  jueves: "${primerEmpleado.jueves}"`);
-      console.log(`  esFuturo.jueves: ${primerEmpleado.esFuturo?.jueves}`);
-      console.log(`  esInactivo.jueves: ${primerEmpleado.esInactivo?.jueves}`);
-      console.log(`  esFinDeSemana.jueves: ${primerEmpleado.esFinDeSemana?.jueves}`);
-      console.log(`  Se mostrará: ${primerEmpleado.esFuturo?.jueves ? 'RELOJ (futuro)' : 
-                    primerEmpleado.esInactivo?.jueves ? 'GUION (inactivo)' :
-                    primerEmpleado.esFinDeSemana?.jueves ? 'FS (fin semana)' :
-                    primerEmpleado.jueves === 'X' ? 'CHECK (asistió)' : 'X (falta)'}`);
-    }
-    
-    console.log('\n✅ fetchWeeklyData COMPLETADO');
-    console.log('========================================\n');
-    
+
   } catch (error) {
-    console.error('❌ ERROR en fetchWeeklyData:', error);
+    console.error('❌ ERROR CRÍTICO en fetchWeeklyData:', error);
+    console.error('Tipo de error:', error.name);
+    console.error('Mensaje:', error.message);
     console.error('Stack trace:', error.stack);
+
+    // Mensajes de error más específicos
+    let errorMessage = 'Error al cargar datos semanales';
     
-    // Mostrar error específico
     if (error.message.includes('Failed to fetch')) {
-      alert('Error de conexión al servidor. Verifica tu conexión a internet.');
+      errorMessage = 'Error de conexión al servidor. Verifica tu conexión a internet.';
     } else if (error.message.includes('404')) {
-      alert('La API no está disponible. Contacta al administrador.');
+      errorMessage = 'La API no está disponible. Contacta al administrador.';
+    } else if (error.message.includes('NetworkError')) {
+      errorMessage = 'Error de red. Verifica tu conexión e intenta nuevamente.';
+    } else if (error.message.includes('server')) {
+      errorMessage = `Error del servidor: ${error.message}`;
     } else {
-      alert(`Error al cargar datos semanales: ${error.message}`);
+      errorMessage = `Error: ${error.message}`;
     }
+
+    // Mostrar error en consola más detallado
+    console.error('Mensaje de error para usuario:', errorMessage);
     
+    // Opcional: Mostrar alerta al usuario
+    alert(errorMessage);
+
+    // Establecer datos vacíos para evitar errores en la UI
     setWeeklyData([]);
+    setWeekStats({
+      totalEmpleados: 0,
+      totalPresentes: 0,
+      totalFaltas: 0,
+      porcentajeAsistencia: 0
+    });
   } finally {
     setWeeklyLoading(false);
   }
 };
 
   // Función corregida para calcular estadísticas de la semana
-  const calcularEstadisticasSemana = (datos) => {
-    if (!datos || datos.length === 0) {
-      return {
-        totalEmpleados: 0,
-        totalPresentes: 0,
-        totalFaltas: 0,
-        porcentajeAsistencia: 0
-      };
-    };
-    
-    let totalPresentes = 0;
-    let totalFaltas = 0;
-    let totalDiasLaborales = 0;
-    
-    // Días de la semana en el orden que aparecen (jueves a miércoles)
-    const diasSemana = ['jueves', 'viernes', 'lunes', 'martes', 'miercoles'];
-    
-    datos.forEach(empleado => {
-      diasSemana.forEach(dia => {
-        // Verificar si es día laboral válido
-        const esFuturo = empleado.esFuturo?.[dia];
-        const esInactivo = empleado.esInactivo?.[dia];
-        const esFinDeSemana = empleado.esFinDeSemana?.[dia];
-        
-        // Solo contar días que sean laborales y no futuros
-        if (!esFuturo && !esInactivo && !esFinDeSemana) {
-          totalDiasLaborales++; // Contar día laboral
-          
-          if (empleado[dia] === 'X') {
-            totalPresentes++;
-          } else if (empleado[dia] === '') {
-            // Solo contar como falta si está vacío (no tiene 'X')
-            totalFaltas++;
-          }
-        }
-      });
-    });
-    
-    const porcentajeAsistencia = totalDiasLaborales > 0 ? 
-      (totalPresentes / totalDiasLaborales) * 100 : 0;
-    
+  // Función corregida para calcular estadísticas de la semana
+// Función corregida para calcular estadísticas de la semana
+const calcularEstadisticasSemana = (datos) => {
+  if (!datos || datos.length === 0) {
     return {
-      totalEmpleados: datos.length,
-      totalPresentes,
-      totalFaltas,
-      totalDiasLaborales,
-      porcentajeAsistencia: parseFloat(porcentajeAsistencia.toFixed(1))
+      totalEmpleados: 0,
+      totalPresentes: 0,
+      totalFaltas: 0,
+      porcentajeAsistencia: 0
     };
+  }
+  
+  let totalPresentes = 0;
+  let totalFaltas = 0;
+  let totalDiasLaborales = 0;
+  
+  // Días de la semana en el orden que aparecen (jueves a miércoles)
+  const diasSemana = ['jueves', 'viernes', 'lunes', 'martes', 'miercoles'];
+  
+  datos.forEach(empleado => {
+    diasSemana.forEach(dia => {
+      // Verificar si es día laboral válido
+      const esFuturo = empleado.esFuturo?.[dia];
+      const esInactivo = empleado.esInactivo?.[dia];
+      const esFinDeSemana = empleado.esFinDeSemana?.[dia];
+      
+      // Solo contar días que sean laborales y no futuros
+      if (!esFuturo && !esInactivo && !esFinDeSemana) {
+        totalDiasLaborales++; // Contar día laboral
+        
+        // Contar 'X' (asistencia) o 'R' (retardo) como presente
+        if (empleado[dia] === 'X' || empleado[dia] === 'R') {
+          totalPresentes++;
+        } else if (empleado[dia] === '' || empleado[dia] === undefined) {
+          // Solo contar como falta si está vacío
+          totalFaltas++;
+        }
+      }
+    });
+  });
+  
+  const porcentajeAsistencia = totalDiasLaborales > 0 ? 
+    (totalPresentes / totalDiasLaborales) * 100 : 0;
+  
+  return {
+    totalEmpleados: datos.length,
+    totalPresentes,
+    totalFaltas,
+    totalDiasLaborales,
+    porcentajeAsistencia: parseFloat(porcentajeAsistencia.toFixed(1))
   };
+};
 
   // Función para cargar datos de verificación de asistencia
   const fetchAttendanceCheckData = async () => {
@@ -966,7 +951,7 @@ const fetchWeeklyData = async (startDate, endDate) => {
             time: record.hora || '',
             timestamp: record.marca_tiempo || new Date().toISOString(),
             department: record.area_empleado || '',
-            departamento: empleadoInfo.departamento || record.departamento || '', // Añadir departamento
+            departamento: empleadoInfo.departamento || record.departamento || '',
             type: record.tipo_registro || 'entrada'
           };
         });
@@ -1248,20 +1233,14 @@ const fetchWeeklyData = async (startDate, endDate) => {
   // ============ FUNCIONES DE EXPORTACIÓN ============
   
   // Exportar datos semanales a Excel con nuevo diseño
-  // Exportar datos semanales a Excel con nuevo diseño - VERSIÓN CORREGIDA
   const exportWeeklyToExcel = async () => {
     try {
-      /* ===============================
-        MAPAS
-      =============================== */
       let observacionesMap = {};
       let empleadosMap = {};
       let tiposFaltaMap = {};
-      // NUEVO: Mapa para tipos de falta por fecha específica
       let tiposFaltaPorFechaMap = {};
 
       try {
-        // Obtener todas las observaciones
         const obsRes = await fetch('/api/observaciones');
         if (obsRes.ok) {
           const data = await obsRes.json();
@@ -1270,12 +1249,10 @@ const fetchWeeklyData = async (startDate, endDate) => {
             observacionesMap[employeeId] = obs.text || '';
             tiposFaltaMap[employeeId] = obs.tipoFalta || '';
             
-            // Crear mapa por fecha específica
             if (obs.fecha && obs.tipoFalta && obs.tipoFalta.trim()) {
               if (!tiposFaltaPorFechaMap[employeeId]) {
                 tiposFaltaPorFechaMap[employeeId] = {};
               }
-              // Guardar tipo de falta para la fecha específica
               tiposFaltaPorFechaMap[employeeId][obs.fecha] = obs.tipoFalta;
             }
           });
@@ -1296,9 +1273,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
         console.error('Error cargando empleados:', error);
       }
 
-      /* ===============================
-        UNIR DATOS
-      =============================== */
       const weeklyDataFinal = weeklyData.map(row => {
         const num = empleadosMap[row.nombre];
         const obs = num ? observacionesMap[num] : '';
@@ -1319,19 +1293,12 @@ const fetchWeeklyData = async (startDate, endDate) => {
 
       const wb = XLSX.utils.book_new();
 
-      /* ===============================
-        CALCULAR FECHAS PARA CADA DÍA (NUEVO ORDEN: JUEVES A MIÉRCOLES)
-      =============================== */
-      // Calcular fecha para cada día específico
       const fechaJueves = calcularFechaParaDiaSemana(selectedWeek, 'jueves');
       const fechaViernes = calcularFechaParaDiaSemana(selectedWeek, 'viernes');
       const fechaLunes = calcularFechaParaDiaSemana(selectedWeek, 'lunes');
       const fechaMartes = calcularFechaParaDiaSemana(selectedWeek, 'martes');
       const fechaMiercoles = calcularFechaParaDiaSemana(selectedWeek, 'miercoles');
 
-      /* ===============================
-        ENCABEZADOS ACTUALIZADOS
-      =============================== */
       const headers = [
         'Número Empleado','Nombre','Área','Departamento',
         `Jueves\n${fechaJueves}`,
@@ -1343,25 +1310,21 @@ const fetchWeeklyData = async (startDate, endDate) => {
         'Observación'
       ];
 
-      // Función para formatear días con tipo de falta específico por fecha
       const formatDia = (v, f, i, esFinDeSemana, employeeId, fechaDia, esFalta = false) => {
         if (f || i || esFinDeSemana) return '';
         
         if (v === 'X') {
           return 'Asistencia';
         } else {
-          // Si es falta, buscar tipo de falta específico para esta fecha
           if (esFalta && employeeId && fechaDia && tiposFaltaPorFechaMap[employeeId]) {
             const tipoFaltaEspecifico = tiposFaltaPorFechaMap[employeeId][fechaDia];
             if (tipoFaltaEspecifico && tipoFaltaEspecifico.trim()) {
-              return tipoFaltaEspecifico.trim(); // Ej: "Incapacidad", "Vacaciones"
+              return tipoFaltaEspecifico.trim();
             }
           }
-          // Si no hay tipo específico para esta fecha, usar el general
           if (esFalta && employeeId && tiposFaltaMap[employeeId] && tiposFaltaMap[employeeId].trim()) {
             return tiposFaltaMap[employeeId].trim();
           }
-          // Por defecto
           if (esFalta) {
             return 'Falta';
           }
@@ -1369,13 +1332,12 @@ const fetchWeeklyData = async (startDate, endDate) => {
         }
       };
 
-      // Función para calcular faltas en el nuevo orden
       const getFaltasTotales = r => {
         const dias = ['jueves','viernes','lunes','martes','miercoles'];
         return dias.filter(d => {
           const esFinDeSemana = r.esFinDeSemana?.[d];
           return (
-            r[d] !== 'X' && 
+            (r[d] === '' || r[d] === undefined) && // Solo contar si está vacío
             !r.esFuturo?.[d] && 
             !r.esInactivo?.[d] &&
             !esFinDeSemana
@@ -1383,11 +1345,9 @@ const fetchWeeklyData = async (startDate, endDate) => {
         }).length;
       };
 
-      // Crear filas con tipo de falta específico por fecha
       const rows = weeklyDataFinal.map(r => {
         const employeeId = r.numero_empleado;
         
-        // Determinar si cada día es una falta
         const esFaltaJueves = r.jueves !== 'X' && !r.esFuturo?.jueves && !r.esInactivo?.jueves && !r.esFinDeSemana?.jueves;
         const esFaltaViernes = r.viernes !== 'X' && !r.esFuturo?.viernes && !r.esInactivo?.viernes && !r.esFinDeSemana?.viernes;
         const esFaltaLunes = r.lunes !== 'X' && !r.esFuturo?.lunes && !r.esInactivo?.lunes && !r.esFinDeSemana?.lunes;
@@ -1409,37 +1369,21 @@ const fetchWeeklyData = async (startDate, endDate) => {
         ];
       });
 
-      /* ===============================
-        CONSTRUIR LA HOJA DE CÁLCULO CON ESTILO AZUL
-      =============================== */
       const sheetData = [
-        // Título principal
         ['REPORTE SEMANAL DE ASISTENCIAS'],
-        // Subtítulo con rango de fechas
         [`Semana ${selectedWeek}: ${weekRange.start} al ${weekRange.end}`],
-        // Fecha y hora de generación
         [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`],
-        // Fila vacía
         [],
-        // Estadísticas
         [`Total empleados: ${weeklyDataFinal.length}`],
         [`Faltas totales: ${weekStats.totalFaltas}`],
         [`Porcentaje de asistencia: ${weekStats.porcentajeAsistencia}%`],
-        // Fila vacía
         [],
-        // Encabezados de tabla
         headers,
-        // Datos
         ...rows
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-      /* ===============================
-        APLICAR ESTILOS AZULES (SIMILAR A REPORTE DE ASISTENCIAS)
-      =============================== */
-
-      // Definir estilos
       const titleStyle = {
         font: { bold: true, sz: 16, color: { rgb: '000000' } },
         alignment: { horizontal: 'center', vertical: 'center' }
@@ -1457,7 +1401,7 @@ const fetchWeeklyData = async (startDate, endDate) => {
 
       const headerStyle = {
         font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
-        fill: { fgColor: { rgb: '2E5A8D' } }, // AZUL OSCURO
+        fill: { fgColor: { rgb: '2E5A8D' } },
         alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
         border: {
           top: { style: 'thin', color: { rgb: '000000' } },
@@ -1500,7 +1444,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
         }
       };
 
-      // Aplicar estilos a las celdas
       const range = XLSX.utils.decode_range(ws['!ref']);
 
       for (let R = 0; R <= range.e.r; R++) {
@@ -1508,10 +1451,8 @@ const fetchWeeklyData = async (startDate, endDate) => {
           const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
           if (!cell) continue;
 
-          // Filas de título (1-3)
           if (R === 0 || R === 1) {
             cell.s = titleStyle;
-            // Combinar celdas para el título
             if (R === 0) {
               if (!ws['!merges']) ws['!merges'] = [];
               ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
@@ -1522,57 +1463,47 @@ const fetchWeeklyData = async (startDate, endDate) => {
             }
           }
 
-          // Fila de generado (2)
           if (R === 2) {
             cell.s = subtitleStyle;
             if (!ws['!merges']) ws['!merges'] = [];
             ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
           }
 
-          // Filas de estadísticas (4-6)
           if (R >= 4 && R <= 6) {
             cell.s = statsStyle;
           }
 
-          // Encabezados de tabla (fila 8, considerando filas vacías)
           if (R === 8) {
             cell.s = headerStyle;
           }
 
-          // Filas de datos (desde la fila 9 en adelante)
           if (R > 8) {
-            // Columna de Nombre (columna 1)
             if (C === 1) {
               cell.s = nombreCellStyle;
             }
-            // Columna de Observación (última columna)
             else if (C === headers.length - 1) {
               cell.s = observacionCellStyle;
             }
-            // Columnas de días (4-8) - aplicar colores según valor
             else if (C >= 4 && C <= 8) {
               const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
               const diaStyle = { ...cellStyle };
               
-              // Aplicar colores según el contenido
               if (cellValue === 'Asistencia') {
-                diaStyle.fill = { fgColor: { rgb: 'C6EFCE' } }; // Verde claro
+                diaStyle.fill = { fgColor: { rgb: 'C6EFCE' } };
                 diaStyle.font = { ...diaStyle.font, color: { rgb: '006100' }, bold: true };
               } else if (cellValue === 'Falta') {
-                diaStyle.fill = { fgColor: { rgb: 'FFC7CE' } }; // Rojo claro
+                diaStyle.fill = { fgColor: { rgb: 'FFC7CE' } };
                 diaStyle.font = { ...diaStyle.font, color: { rgb: '9C0006' }, bold: true };
               } else if (cellValue === 'Vacaciones') {
-                diaStyle.fill = { fgColor: { rgb: 'FFEB9C' } }; // Amarillo claro
+                diaStyle.fill = { fgColor: { rgb: 'FFEB9C' } };
                 diaStyle.font = { ...diaStyle.font, color: { rgb: '9C5700' }, bold: true };
               } else if (cellValue === 'Incapacidad') {
-                diaStyle.fill = { fgColor: { rgb: 'DDEBF7' } }; // Azul claro
+                diaStyle.fill = { fgColor: { rgb: 'DDEBF7' } };
                 diaStyle.font = { ...diaStyle.font, color: { rgb: '2F5496' }, bold: true };
               }
-              // Puedes agregar más tipos aquí si es necesario
               
               cell.s = diaStyle;
             }
-            // Otras columnas
             else {
               cell.s = cellStyle;
             }
@@ -1580,40 +1511,30 @@ const fetchWeeklyData = async (startDate, endDate) => {
         }
       }
 
-      // Combinar celdas del título y subtítulos
       ws['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
       ];
 
-      /* ===============================
-        AJUSTAR ANCHO DE COLUMNAS
-      =============================== */
       ws['!cols'] = [
-        { wch: 16 },  // Número Empleado
-        { wch: 30 },  // Nombre
-        { wch: 15 },  // Área
-        { wch: 18 },  // Departamento
-        { wch: 14 },  // Jueves (con fecha)
-        { wch: 14 },  // Viernes (con fecha)
-        { wch: 14 },  // Lunes (con fecha)
-        { wch: 14 },  // Martes (con fecha)
-        { wch: 14 },  // Miércoles (con fecha)
-        { wch: 12 },  // Faltas Totales
-        { wch: 35 }   // Observación
+        { wch: 16 },
+        { wch: 30 },
+        { wch: 15 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 35 }
       ];
 
-      /* ===============================
-        CONGELAR PANELES
-      =============================== */
       ws['!freeze'] = { xSplit: 0, ySplit: 8, topLeftCell: 'A9', activePane: 'bottomRight' };
 
       XLSX.utils.book_append_sheet(wb, ws, `Semana ${selectedWeek}`);
 
-      /* ===============================
-        GUARDAR ARCHIVO
-      =============================== */
       XLSX.writeFile(
         wb,
         `REPORTE_SEMANAL_ASISTENCIAS_SEMANA_${selectedWeek}_${weekRange.start.replace(/\//g, '-')}.xlsx`
@@ -1626,30 +1547,23 @@ const fetchWeeklyData = async (startDate, endDate) => {
     }
   };
 
-
-
   // Exportar datos semanales a PDF con observaciones
   const exportWeeklyToPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
 
-      /* ===============================
-        1️⃣ MAPAS DE OBSERVACIONES, TIPOS DE FALTA Y EMPLEADOS
-      =============================== */
       let observacionesMap = {};
-      let tiposFaltaMap = {}; // NUEVO: Mapa para tipos de falta
+      let tiposFaltaMap = {};
       
       try {
         const obsRes = await fetch('/api/observaciones');
         if (obsRes.ok) {
           const data = await obsRes.json();
           data.forEach(obs => {
-            // Guardar la observación más reciente
             if (!observacionesMap[obs.employeeId] || 
                 new Date(obs.date) > new Date(observacionesMap[obs.employeeId].date)) {
               observacionesMap[obs.employeeId] = obs;
             }
-            // Guardar tipo de falta
             tiposFaltaMap[obs.employeeId] = obs.tipoFalta || '';
           });
         }
@@ -1666,25 +1580,19 @@ const fetchWeeklyData = async (startDate, endDate) => {
         }
       } catch {}
 
-      /* ===============================
-        2️⃣ UNIR DATOS
-      =============================== */
       const weeklyDataFinal = weeklyData.map(row => {
         const num = empleadosMap[row.nombre];
         const obs = num ? observacionesMap[num]?.text : null;
-        const tipoFalta = num ? tiposFaltaMap[num] : null; // NUEVO: Obtener tipo de falta
+        const tipoFalta = num ? tiposFaltaMap[num] : null;
 
         return {
           ...row,
           numero_empleado: num || 'N/A',
           observacion: obs && obs.trim() ? obs : '—',
-          tipoFalta: tipoFalta && tipoFalta.trim() ? tipoFalta : '—' // NUEVO: Añadir tipo de falta
+          tipoFalta: tipoFalta && tipoFalta.trim() ? tipoFalta : '—'
         };
       });
 
-      /* ===============================
-        3️⃣ PDF BASE
-      =============================== */
       const pdf = new jsPDF('l', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
@@ -1692,30 +1600,21 @@ const fetchWeeklyData = async (startDate, endDate) => {
       const MAX_ROWS = 12;
       const totalPages = Math.ceil(weeklyDataFinal.length / MAX_ROWS);
 
-      /* ===============================
-        4️⃣ RENDER DÍA (MINIMAL)
-      =============================== */
       const renderDay = (valor, esFuturo, esInactivo, esFinDeSemana) => {
         if (esFuturo || esInactivo || esFinDeSemana) return { t: '—', c: [156, 163, 175] };
         if (valor === 'X') return { t: '✓', c: [16, 185, 129] };
         return { t: '✗', c: [239, 68, 68] };
       };
 
-      /* ===============================
-        5️⃣ HEADER MINIMALISTA
-      =============================== */
       const drawHeader = (page) => {
-        // Línea superior
         pdf.setDrawColor(229, 231, 235);
         pdf.line(10, 26, pageWidth - 10, 26);
 
-        // Título
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(18);
         pdf.setTextColor(17, 24, 39);
         pdf.text('Reporte Semanal de Asistencias', 15, 15);
 
-        // Subtítulo
         pdf.setFontSize(10);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(107, 114, 128);
@@ -1725,7 +1624,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
           22
         );
 
-        // Página
         pdf.text(
           `Página ${page} de ${totalPages}`,
           pageWidth - 15,
@@ -1733,7 +1631,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
           { align: 'right' }
         );
 
-        /* ===== Métricas ===== */
         const y = 30;
         const cardW = 42;
         const gap = 6;
@@ -1760,10 +1657,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
         });
       };
 
-      /* ===============================
-        6️⃣ TABLA CON NUEVAS COLUMNAS
-      =============================== */
-      // Ajustar anchos para incluir Tipo de Falta
       const colW = [45, 25, 35, 8, 8, 8, 8, 8, 12, 20, 40];
 
       const drawTableHeader = (y) => {
@@ -1774,7 +1667,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(55, 65, 81);
 
-        // Actualizar headers con nuevo orden y Tipo de Falta
         const headers = ['Nombre', 'Área', 'Departamento', 'J', 'V', 'L', 'M', 'X', 'Faltas', 'Tipo Falta', 'Observación'];
         let x = 12;
         headers.forEach((h, i) => {
@@ -1786,7 +1678,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
       const drawRow = (row, y) => {
         let x = 12;
 
-        // Nombre
         pdf.setFontSize(7);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(17, 24, 39);
@@ -1794,17 +1685,14 @@ const fetchWeeklyData = async (startDate, endDate) => {
         pdf.text(nombre, x + 2, y + 6);
         x += colW[0];
 
-        // Área
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(107, 114, 128);
         pdf.text(row.area || '—', x + 2, y + 6);
         x += colW[1];
 
-        // Departamento
         pdf.text(row.departamento || '—', x + 2, y + 6);
         x += colW[2];
 
-        // Días de la semana en nuevo orden: Jueves a Miércoles
         const dias = [
           { v: row.jueves, f: row.esFuturo?.jueves, i: row.esInactivo?.jueves, fs: row.esFinDeSemana?.jueves },
           { v: row.viernes, f: row.esFuturo?.viernes, i: row.esInactivo?.viernes, fs: row.esFinDeSemana?.viernes },
@@ -1821,7 +1709,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
           x += colW[3];
         });
 
-        // Faltas Totales
         pdf.setTextColor(17, 24, 39);
         const faltasTotales = ['jueves','viernes','lunes','martes','miercoles']
           .filter(d => {
@@ -1836,7 +1723,6 @@ const fetchWeeklyData = async (startDate, endDate) => {
         pdf.text(String(faltasTotales), x + colW[8] / 2, y + 6, { align: 'center' });
         x += colW[8];
 
-        // Tipo de Falta (NUEVO)
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(75, 85, 99);
         const tipoFalta = row.tipoFalta || '—';
@@ -1844,19 +1730,14 @@ const fetchWeeklyData = async (startDate, endDate) => {
         pdf.text(tipoFaltaShort, x + colW[9] / 2, y + 6, { align: 'center' });
         x += colW[9];
 
-        // Observación
         const obs = row.observacion || '—';
         const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
         pdf.text(obsShort, x + 2, y + 6);
 
-        // Línea separadora
         pdf.setDrawColor(229, 231, 235);
         pdf.line(10, y + 9, pageWidth - 10, y + 9);
       };
 
-      /* ===============================
-        7️⃣ PAGINADO
-      =============================== */
       let page = 1;
       for (let i = 0; i < weeklyDataFinal.length; i += MAX_ROWS) {
         if (page > 1) pdf.addPage();
@@ -1874,14 +1755,10 @@ const fetchWeeklyData = async (startDate, endDate) => {
         page++;
       }
 
-      /* ===============================
-        8️⃣ FOOTER CON LEYENDAS
-      =============================== */
       pdf.setPage(totalPages);
       pdf.setFontSize(7);
       pdf.setTextColor(107, 114, 128);
       
-      // Leyenda de símbolos
       const leyenda = [
         '✓ = Asistencia',
         '✗ = Falta',
@@ -1901,1364 +1778,1153 @@ const fetchWeeklyData = async (startDate, endDate) => {
     }
   };
 
-// Exportar registros de asistencia con diseño similar
-const exportAllToExcel = () => {
-  try {
-    const filteredData = attendanceData.filter(r => {
-      const matchesSearch =
-        r.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.employeeName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.departamento?.toLowerCase().includes(searchTerm.toLowerCase());
-
-      const matchesDate = !dateFilter || r.fecha === dateFilter || r.date === dateFilter;
-      return matchesSearch && matchesDate;
-    });
-
-    if (filteredData.length === 0) {
-      alert('No hay datos de asistencia para exportar');
-      return;
-    }
-
-    const wb = XLSX.utils.book_new();
-
-    /* ===============================
-       TÍTULO Y ENCABEZADOS
-    =============================== */
-    
-    // Título principal
-    const titleRow1 = ['REPORTE DE REGISTROS DE ASISTENCIA'];
-    const titleRow2 = [dateFilter ? `Fecha: ${dateFilter}` : 'Rango: Todas las fechas'];
-    const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
-    const titleRow4 = []; // Fila vacía
-    
-    // Estadísticas
-    const entradas = filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length;
-    const salidas = filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length;
-    const empleadosUnicos = [...new Set(filteredData.map(r => r.numero_empleado || r.employeeId))].length;
-    
-    const statsRow1 = [`Total registros: ${filteredData.length}`];
-    const statsRow2 = [`Registros de entrada: ${entradas}`];
-    const statsRow3 = [`Registros de salida: ${salidas}`];
-    const statsRow4 = [`Empleados únicos: ${empleadosUnicos}`];
-    if (searchTerm) {
-      statsRow4.push(`Búsqueda: "${searchTerm}"`);
-    }
-    const statsRow5 = []; // Fila vacía
-    
-    // Encabezados de tabla
-    const headers = [
-      'Número Empleado',
-      'Nombre',
-      'Área',
-      'Departamento',
-      'Fecha',
-      'Hora',
-      'Tipo de Registro'
-    ];
-
-    /* ===============================
-       DATOS DE LA TABLA
-    =============================== */
-    const rows = filteredData.map(r => ([
-      r.numero_empleado || r.employeeId || 'N/A',
-      r.nombre_empleado || r.employeeName || 'SIN NOMBRE',
-      r.area_empleado || r.department || '',
-      r.departamento || '',
-      r.fecha || r.date || '',
-      r.hora || r.time || '',
-      (r.tipo_registro || r.type || 'entrada').toUpperCase()
-    ]));
-
-    /* ===============================
-       CONSTRUIR LA HOJA DE CÁLCULO
-    =============================== */
-    const sheetData = [
-      titleRow1,
-      titleRow2,
-      titleRow3,
-      titleRow4,
-      statsRow1,
-      statsRow2,
-      statsRow3,
-      statsRow4,
-      statsRow5,
-      headers,
-      ...rows
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-    /* ===============================
-       APLICAR ESTILOS Y FORMATOS
-    =============================== */
-
-    // Definir estilos
-    const titleStyle = {
-      font: { bold: true, sz: 16, color: { rgb: '000000' } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-
-    const subtitleStyle = {
-      font: { bold: true, sz: 12, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' }
-    };
-
-    const statsStyle = {
-      font: { bold: true, sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' }
-    };
-
-    const headerStyle = {
-      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '2E5A8D' } }, // Azul oscuro
-      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-      border: {
-        top: { style: 'thin', color: { rgb: '000000' } },
-        bottom: { style: 'thin', color: { rgb: '000000' } },
-        left: { style: 'thin', color: { rgb: '000000' } },
-        right: { style: 'thin', color: { rgb: '000000' } }
-      }
-    };
-
-    const cellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    const nombreCellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    // Aplicar estilos a las celdas
-    const range = XLSX.utils.decode_range(ws['!ref']);
-
-    for (let R = 0; R <= range.e.r; R++) {
-      for (let C = 0; C <= range.e.c; C++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (!cell) continue;
-
-        // Filas de título (1-3)
-        if (R === 0 || R === 1) {
-          cell.s = titleStyle;
-          // Combinar celdas para el título
-          if (R === 0) {
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
-          }
-          if (R === 1) {
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
-          }
-        }
-
-        // Fila de generado (2)
-        if (R === 2) {
-          cell.s = subtitleStyle;
-          if (!ws['!merges']) ws['!merges'] = [];
-          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
-        }
-
-        // Filas de estadísticas (4-7)
-        if (R >= 4 && R <= 7) {
-          cell.s = statsStyle;
-        }
-
-        // Encabezados de tabla (fila 10, considerando filas vacías)
-        if (R === 10) {
-          cell.s = headerStyle;
-        }
-
-        // Filas de datos (desde la fila 11 en adelante)
-        if (R > 10) {
-          // Columna de Nombre (columna 1)
-          if (C === 1) {
-            cell.s = nombreCellStyle;
-          }
-          // Otras columnas
-          else {
-            cell.s = cellStyle;
-          }
-        }
-      }
-    }
-
-    /* ===============================
-       AJUSTAR ANCHO DE COLUMNAS
-    =============================== */
-    ws['!cols'] = [
-      { wch: 16 },  // Número Empleado
-      { wch: 30 },  // Nombre
-      { wch: 15 },  // Área
-      { wch: 18 },  // Departamento
-      { wch: 12 },  // Fecha
-      { wch: 10 },  // Hora
-      { wch: 16 }   // Tipo de Registro
-    ];
-
-    /* ===============================
-       CONGELAR PANELES
-    =============================== */
-    ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Registros Asistencia');
-
-    /* ===============================
-       GUARDAR ARCHIVO
-    =============================== */
-    let fileName = 'REPORTE_REGISTROS_ASISTENCIA';
-    if (dateFilter) fileName += `_${dateFilter.replace(/\//g, '-')}`;
-    if (searchTerm) {
-      const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
-      fileName += `_BUSQUEDA_${termShort}`;
-    }
-    fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
-    
-    XLSX.writeFile(wb, fileName);
-
-    console.log('✅ Registros de asistencia exportados con diseño de imagen');
-  } catch (e) {
-    console.error('❌ Error al exportar registros:', e);
-    alert('Error al exportar los registros. Por favor, intente nuevamente.');
-  }
-};
-
-// Exportar lista de empleados con diseño similar
-const exportEmployeesToExcel = () => {
-  try {
-    if (employees.length === 0) {
-      alert('No hay empleados para exportar');
-      return;
-    }
-
-    const wb = XLSX.utils.book_new();
-
-    /* ===============================
-       TÍTULO Y ENCABEZADOS
-    =============================== */
-    
-    // Título principal
-    const titleRow1 = ['REPORTE DE EMPLEADOS REGISTRADOS'];
-    const titleRow2 = ['Sistema de Control de Asistencias'];
-    const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
-    const titleRow4 = []; // Fila vacía
-    
-    // Estadísticas
-    const activos = employees.filter(e => e.activo).length;
-    const inactivos = employees.filter(e => !e.activo).length;
-    const porcentajeActivos = employees.length > 0 ? ((activos / employees.length) * 100).toFixed(1) : 0;
-    
-    const statsRow1 = [`Total empleados: ${employees.length}`];
-    const statsRow2 = [`Empleados activos: ${activos}`];
-    const statsRow3 = [`Empleados inactivos: ${inactivos}`];
-    const statsRow4 = [`Porcentaje activos: ${porcentajeActivos}%`];
-    const statsRow5 = []; // Fila vacía
-    
-    // Encabezados de tabla
-    const headers = [
-      'Número Empleado',
-      'Nombre Completo',
-      'Área',
-      'Departamento',
-      'Estado'
-    ];
-
-    /* ===============================
-       DATOS DE LA TABLA
-    =============================== */
-    const rows = employees.map(e => ([
-      e.numero_empleado,
-      e.nombre_completo,
-      e.area,
-      e.departamento || '—',
-      e.activo ? 'ACTIVO' : 'INACTIVO'
-    ]));
-
-    /* ===============================
-       CONSTRUIR LA HOJA DE CÁLCULO
-    =============================== */
-    const sheetData = [
-      titleRow1,
-      titleRow2,
-      titleRow3,
-      titleRow4,
-      statsRow1,
-      statsRow2,
-      statsRow3,
-      statsRow4,
-      statsRow5,
-      headers,
-      ...rows
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-    /* ===============================
-       APLICAR ESTILOS Y FORMATOS
-    =============================== */
-
-    // Definir estilos
-    const titleStyle = {
-      font: { bold: true, sz: 16, color: { rgb: '000000' } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-
-    const subtitleStyle = {
-      font: { bold: true, sz: 12, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' }
-    };
-
-    const statsStyle = {
-      font: { bold: true, sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' }
-    };
-
-    const headerStyle = {
-      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '2E5A8D' } }, // Azul oscuro
-      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-      border: {
-        top: { style: 'thin', color: { rgb: '000000' } },
-        bottom: { style: 'thin', color: { rgb: '000000' } },
-        left: { style: 'thin', color: { rgb: '000000' } },
-        right: { style: 'thin', color: { rgb: '000000' } }
-      }
-    };
-
-    const cellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    const nombreCellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    const estadoCellStyle = {
-      font: { bold: true, sz: 11 },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    // Aplicar estilos a las celdas
-    const range = XLSX.utils.decode_range(ws['!ref']);
-
-    for (let R = 0; R <= range.e.r; R++) {
-      for (let C = 0; C <= range.e.c; C++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (!cell) continue;
-
-        // Filas de título (1-3)
-        if (R === 0 || R === 1) {
-          cell.s = titleStyle;
-          // Combinar celdas para el título
-          if (R === 0) {
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
-          }
-          if (R === 1) {
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
-          }
-        }
-
-        // Fila de generado (2)
-        if (R === 2) {
-          cell.s = subtitleStyle;
-          if (!ws['!merges']) ws['!merges'] = [];
-          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
-        }
-
-        // Filas de estadísticas (4-7)
-        if (R >= 4 && R <= 7) {
-          cell.s = statsStyle;
-        }
-
-        // Encabezados de tabla (fila 10, considerando filas vacías)
-        if (R === 10) {
-          cell.s = headerStyle;
-        }
-
-        // Filas de datos (desde la fila 11 en adelante)
-        if (R > 10) {
-          // Columna de Nombre (columna 1)
-          if (C === 1) {
-            cell.s = nombreCellStyle;
-          }
-          // Columna de Estado (última columna)
-          else if (C === headers.length - 1) {
-            // Establecer color según estado
-            const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
-            if (cellValue === 'ACTIVO') {
-              cell.s = { 
-                ...estadoCellStyle,
-                font: { ...estadoCellStyle.font, color: { rgb: '228B22' } }, // Verde
-                fill: { fgColor: { rgb: 'F0FFF0' } } // Verde claro
-              };
-            } else {
-              cell.s = { 
-                ...estadoCellStyle,
-                font: { ...estadoCellStyle.font, color: { rgb: 'DC143C' } }, // Rojo
-                fill: { fgColor: { rgb: 'FFF0F0' } } // Rojo claro
-              };
-            }
-          }
-          // Otras columnas
-          else {
-            cell.s = cellStyle;
-          }
-        }
-      }
-    }
-
-    /* ===============================
-       AJUSTAR ANCHO DE COLUMNAS
-    =============================== */
-    ws['!cols'] = [
-      { wch: 16 },  // Número Empleado
-      { wch: 35 },  // Nombre Completo
-      { wch: 15 },  // Área
-      { wch: 18 },  // Departamento
-      { wch: 14 }   // Estado
-    ];
-
-    /* ===============================
-       CONGELAR PANELES
-    =============================== */
-    ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Empleados');
-
-    /* ===============================
-       GUARDAR ARCHIVO
-    =============================== */
-    const fileName = `REPORTE_EMPLEADOS_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-
-    console.log('✅ Lista de empleados exportada con diseño de imagen');
-  } catch (e) {
-    console.error('❌ Error al exportar empleados:', e);
-    alert('Error al exportar la lista de empleados. Por favor, intente nuevamente.');
-  }
-};
-
-  const exportEmployeesToPDF = async () => {
-  try {
-    const { jsPDF } = await import('jspdf');
-
-    /* ===============================
-      3️⃣ PDF BASE
-    =============================== */
-    const pdf = new jsPDF('l', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const MAX_ROWS = 12;
-    const totalPages = Math.ceil(employees.length / MAX_ROWS);
-
-    /* ===============================
-      4️⃣ HEADER MINIMALISTA
-    =============================== */
-    const drawHeader = (page) => {
-      // Línea superior
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, 26, pageWidth - 10, 26);
-
-      // Título
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(18);
-      pdf.setTextColor(17, 24, 39);
-      pdf.text('Reporte de Empleados', 15, 15);
-
-      // Subtítulo
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(107, 114, 128);
-      pdf.text(
-        `Total empleados: ${employees.length} · Activos: ${employees.filter(e => e.activo).length}`,
-        15,
-        22
-      );
-
-      // Página
-      pdf.text(
-        `Página ${page} de ${totalPages}`,
-        pageWidth - 15,
-        22,
-        { align: 'right' }
-      );
-
-      /* ===== Métricas ===== */
-      const y = 30;
-      const cardW = 45;
-      const gap = 6;
-
-      const activos = employees.filter(e => e.activo).length;
-      const inactivos = employees.filter(e => !e.activo).length;
-
-      const metrics = [
-        { t: 'Total', v: employees.length },
-        { t: 'Activos', v: activos },
-        { t: 'Inactivos', v: inactivos },
-        { t: '% Activos', v: `${((activos / employees.length) * 100).toFixed(1)}%` }
-      ];
-
-      metrics.forEach((m, i) => {
-        const x = 15 + i * (cardW + gap);
-        pdf.setDrawColor(229, 231, 235);
-        pdf.roundedRect(x, y, cardW, 18, 3, 3);
-
-        pdf.setFontSize(7);
-        pdf.setTextColor(107, 114, 128);
-        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
-
-        pdf.setFontSize(14);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(17, 24, 39);
-        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
-      });
-    };
-
-    /* ===============================
-      5️⃣ TABLA
-    =============================== */
-    const colW = [20, 60, 40, 45, 20, 30];
-
-    const drawTableHeader = (y) => {
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(10, y, pageWidth - 20, 9, 'F');
-
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(55, 65, 81);
-
-      const headers = ['N°', 'Nombre Completo', 'Área', 'Departamento', 'Estado', 'Última Actualización'];
-      let x = 12;
-      headers.forEach((h, i) => {
-        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
-        x += colW[i];
-      });
-    };
-
-    const drawRow = (row, index, y) => {
-      let x = 12;
-
-      // Número de Empleado
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(17, 24, 39);
-      pdf.text(row.numero_empleado, x + colW[0] / 2, y + 6, { align: 'center' });
-      x += colW[0];
-
-      // Nombre Completo
-      pdf.setFont('helvetica', 'normal');
-      const nombre = row.nombre_completo.length > 25 ? row.nombre_completo.substring(0, 25) + '...' : row.nombre_completo;
-      pdf.text(nombre, x + 2, y + 6);
-      x += colW[1];
-
-      // Área
-      pdf.text(row.area || '—', x + 2, y + 6);
-      x += colW[2];
-
-      // Departamento
-      pdf.text(row.departamento || '—', x + 2, y + 6);
-      x += colW[3];
-
-      // Estado
-      pdf.setFont('helvetica', 'bold');
-      if (row.activo) {
-        pdf.setTextColor(16, 185, 129);
-        pdf.text('ACTIVO', x + colW[4] / 2, y + 6, { align: 'center' });
-      } else {
-        pdf.setTextColor(239, 68, 68);
-        pdf.text('INACTIVO', x + colW[4] / 2, y + 6, { align: 'center' });
-      }
-      x += colW[4];
-
-      // Última Actualización (fecha de generación)
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(107, 114, 128);
-      const hoy = new Date().toLocaleDateString('es-MX');
-      pdf.text(hoy, x + colW[5] / 2, y + 6, { align: 'center' });
-
-      // Línea separadora
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, y + 9, pageWidth - 10, y + 9);
-    };
-
-    /* ===============================
-      6️⃣ PAGINADO
-    =============================== */
-    let page = 1;
-    for (let i = 0; i < employees.length; i += MAX_ROWS) {
-      if (page > 1) pdf.addPage();
-      drawHeader(page);
-
-      let y = 55;
-      drawTableHeader(y);
-      y += 9;
-
-      employees.slice(i, i + MAX_ROWS).forEach((row, index) => {
-        drawRow(row, i + index, y);
-        y += 10;
-      });
-
-      page++;
-    }
-
-    /* ===============================
-      7️⃣ FOOTER
-    =============================== */
-    pdf.setPage(totalPages);
-    pdf.setFontSize(7);
-    pdf.setTextColor(107, 114, 128);
-    pdf.text(
-      'Sistema de Control de Asistencias · Todos los derechos reservados',
-      pageWidth / 2,
-      pageHeight - 12,
-      { align: 'center' }
-    );
-
-    pdf.save(`reporte_empleados_${new Date().toISOString().split('T')[0]}.pdf`);
-  } catch (e) {
-    console.error(e);
-    alert('Error al generar PDF de empleados');
-  }
-};
-
-// Exportar verificación de asistencia diaria con diseño similar
-// Exportar verificación de asistencia diaria con diseño similar - CORREGIDO
-const exportAttendanceCheckToExcel = async () => {
-  try {
-    if (attendanceCheckData.length === 0) {
-      alert('No hay datos de verificación para exportar');
-      return;
-    }
-
-    const wb = XLSX.utils.book_new();
-
-    /* ===============================
-       TÍTULO Y ENCABEZADOS
-    =============================== */
-    
-    // Título principal
-    const titleRow1 = ['VERIFICACIÓN DIARIA DE ASISTENCIA'];
-    const titleRow2 = [`Fecha: ${currentDate}`];
-    const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
-    const titleRow4 = []; // Fila vacía
-    
-    // Estadísticas
-    const asistieron = attendanceCheckData.filter(e => e.attendedToday).length;
-    const antes9AM = attendanceCheckData.filter(e => e.before9AM).length;
-    const sinRegistro = attendanceCheckData.filter(e => !e.attendedToday).length;
-    const porcentaje = attendanceCheckData.length > 0 ? ((asistieron / attendanceCheckData.length) * 100).toFixed(1) : 0;
-    
-    const statsRow1 = [`Total empleados: ${attendanceCheckData.length}`];
-    const statsRow2 = [`Asistieron hoy: ${asistieron}`];
-    const statsRow3 = [`Antes de 9:00 AM: ${antes9AM}`];
-    const statsRow4 = [`Sin registro: ${sinRegistro}`];
-    const statsRow5 = [`Porcentaje de asistencia: ${porcentaje}%`];
-    const statsRow6 = []; // Fila vacía
-    
-    // Encabezados de tabla
-    const headers = [
-      'Número Empleado',
-      'Nombre',
-      'Área',
-      'Departamento',
-      'Asistió Hoy',
-      'Antes 9:00 AM',
-      'Tipo de Registro',
-      'Última Hora',
-      'Observación'
-    ];
-
-    /* ===============================
-       DATOS DE LA TABLA
-    =============================== */
-    const rows = attendanceCheckData.map(e => {
-      // Obtener observación si existe
-      const observacion = observaciones[e.id] || '';
-      
-      return [
-        e.id,
-        e.name,
-        e.area,
-        e.departamento || '',
-        e.attendedToday ? 'SÍ' : 'NO',
-        e.before9AM ? 'SÍ' : 'NO',
-        e.attendanceType?.toUpperCase() || 'SIN REGISTRO',
-        e.lastTime || '--:--',
-        observacion
-      ];
-    });
-
-    /* ===============================
-       CONSTRUIR LA HOJA DE CÁLCULO
-    =============================== */
-    const sheetData = [
-      titleRow1,
-      titleRow2,
-      titleRow3,
-      titleRow4,
-      statsRow1,
-      statsRow2,
-      statsRow3,
-      statsRow4,
-      statsRow5,
-      statsRow6,
-      headers,
-      ...rows
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-    /* ===============================
-       APLICAR ESTILOS Y FORMATOS
-    =============================== */
-
-    // Definir estilos
-    const titleStyle = {
-      font: { bold: true, sz: 16, color: { rgb: '000000' } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-
-    const subtitleStyle = {
-      font: { bold: true, sz: 12, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' }
-    };
-
-    const statsStyle = {
-      font: { bold: true, sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' }
-    };
-
-    const headerStyle = {
-      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '2E5A8D' } }, // Azul oscuro
-      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-      border: {
-        top: { style: 'thin', color: { rgb: '000000' } },
-        bottom: { style: 'thin', color: { rgb: '000000' } },
-        left: { style: 'thin', color: { rgb: '000000' } },
-        right: { style: 'thin', color: { rgb: '000000' } }
-      }
-    };
-
-    const cellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    const nombreCellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center' },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    const observacionCellStyle = {
-      font: { sz: 11, color: { rgb: '000000' } },
-      alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
-      border: {
-        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-      }
-    };
-
-    // Aplicar estilos a las celdas
-    const range = XLSX.utils.decode_range(ws['!ref']);
-
-    for (let R = 0; R <= range.e.r; R++) {
-      for (let C = 0; C <= range.e.c; C++) {
-        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (!cell) continue;
-
-        // Filas de título (1-3)
-        if (R === 0 || R === 1) {
-          cell.s = titleStyle;
-          // Combinar celdas para el título
-          if (R === 0) {
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
-          }
-          if (R === 1) {
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
-          }
-        }
-
-        // Fila de generado (2)
-        if (R === 2) {
-          cell.s = subtitleStyle;
-          if (!ws['!merges']) ws['!merges'] = [];
-          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
-        }
-
-        // Filas de estadísticas (4-8)
-        if (R >= 4 && R <= 8) {
-          cell.s = statsStyle;
-        }
-
-        // Encabezados de tabla (fila 10, considerando filas vacías)
-        if (R === 10) {
-          cell.s = headerStyle;
-        }
-
-        // Filas de datos (desde la fila 11 en adelante)
-        if (R > 10) {
-          // Columna de Nombre (columna 1)
-          if (C === 1) {
-            cell.s = nombreCellStyle;
-          }
-          // Columna de Observación (última columna)
-          else if (C === headers.length - 1) {
-            cell.s = observacionCellStyle;
-          }
-          // Otras columnas
-          else {
-            cell.s = cellStyle;
-          }
-        }
-      }
-    }
-
-    /* ===============================
-       AJUSTAR ANCHO DE COLUMNAS
-    =============================== */
-    ws['!cols'] = [
-      { wch: 16 },  // Número Empleado
-      { wch: 30 },  // Nombre
-      { wch: 15 },  // Área
-      { wch: 18 },  // Departamento
-      { wch: 12 },  // Asistió Hoy
-      { wch: 14 },  // Antes 9:00 AM
-      { wch: 18 },  // Tipo de Registro
-      { wch: 12 },  // Última Hora
-      { wch: 40 }   // Observación
-    ];
-
-    /* ===============================
-       CONGELAR PANELES
-    =============================== */
-    ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
-
-    // CORRECCIÓN: Reemplazar barras por guiones en el nombre de la hoja
-    const safeDate = currentDate.replace(/\//g, '-'); // Reemplazar / por -
-    XLSX.utils.book_append_sheet(wb, ws, `Verificacion ${safeDate}`);
-
-    /* ===============================
-       GUARDAR ARCHIVO
-    =============================== */
-    const fileName = `VERIFICACION_ASISTENCIA_${currentDate.replace(/\//g, '-')}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-
-    console.log('✅ Verificación diaria exportada con diseño de imagen');
-  } catch (e) {
-    console.error('❌ Error al exportar verificación:', e);
-    alert('Error al exportar la verificación. Por favor, intente nuevamente.');
-  }
-};
-
-  const exportAttendanceCheckToPDF = async () => {
-  try {
-    const { jsPDF } = await import('jspdf');
-
-    /* ===============================
-      1️⃣ MAPAS DE OBSERVACIONES Y EMPLEADOS
-    =============================== */
-    let observacionesMap = {};
+  // Exportar registros de asistencia con diseño similar
+  const exportAllToExcel = () => {
     try {
-      const obsRes = await fetch('/api/observaciones');
-      if (obsRes.ok) {
-        const data = await obsRes.json();
-        data.forEach(obs => {
-          observacionesMap[obs.employeeId] = obs.text;
-        });
-      }
-    } catch {}
+      const filteredData = attendanceData.filter(r => {
+        const matchesSearch =
+          r.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.employeeName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.departamento?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    /* ===============================
-      2️⃣ UNIR DATOS CON OBSERVACIONES
-    =============================== */
-    const checkDataFinal = attendanceCheckData.map(employee => {
-      const observacion = observacionesMap[employee.id] || '—';
-      
-      return {
-        ...employee,
-        observacion: observacion.trim() ? observacion : '—'
-      };
-    });
-
-    /* ===============================
-      3️⃣ PDF BASE
-    =============================== */
-    const pdf = new jsPDF('l', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const MAX_ROWS = 12;
-    const totalPages = Math.ceil(checkDataFinal.length / MAX_ROWS);
-
-    /* ===============================
-      4️⃣ HEADER MINIMALISTA
-    =============================== */
-    const drawHeader = (page) => {
-      // Línea superior
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, 26, pageWidth - 10, 26);
-
-      // Título
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(18);
-      pdf.setTextColor(17, 24, 39);
-      pdf.text('Verificación de Asistencia Diaria', 15, 15);
-
-      // Subtítulo
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(107, 114, 128);
-      pdf.text(
-        `Fecha: ${currentDate} · Hora de corte: 9:00 AM`,
-        15,
-        22
-      );
-
-      // Página
-      pdf.text(
-        `Página ${page} de ${totalPages}`,
-        pageWidth - 15,
-        22,
-        { align: 'right' }
-      );
-
-      /* ===== Métricas ===== */
-      const y = 30;
-      const cardW = 40;
-      const gap = 6;
-
-      const asistieron = checkDataFinal.filter(e => e.attendedToday).length;
-      const antes9AM = checkDataFinal.filter(e => e.before9AM).length;
-      const sinRegistro = checkDataFinal.filter(e => !e.attendedToday).length;
-      const porcentaje = checkDataFinal.length > 0 ? ((asistieron / checkDataFinal.length) * 100).toFixed(1) : 0;
-
-      const metrics = [
-        { t: 'Empleados', v: checkDataFinal.length },
-        { t: 'Asistieron', v: asistieron },
-        { t: 'Antes 9 AM', v: antes9AM },
-        { t: '% Asistencia', v: `${porcentaje}%` },
-        { t: 'Sin Registro', v: sinRegistro }
-      ];
-
-      metrics.forEach((m, i) => {
-        const x = 10 + i * (cardW + gap);
-        pdf.setDrawColor(229, 231, 235);
-        pdf.roundedRect(x, y, cardW, 18, 3, 3);
-
-        pdf.setFontSize(7);
-        pdf.setTextColor(107, 114, 128);
-        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
-
-        pdf.setFontSize(14);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(17, 24, 39);
-        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
-      });
-    };
-
-    /* ===============================
-      5️⃣ TABLA
-    =============================== */
-    // Ajustar anchos de columnas
-    const colW = [22, 45, 28, 32, 18, 20, 22, 18, 38];
-
-    const drawTableHeader = (y) => {
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(10, y, pageWidth - 20, 9, 'F');
-
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(55, 65, 81);
-
-      const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Asistió', 'Antes 9AM', 'Tipo', 'Hora', 'Observación'];
-      let x = 12;
-      headers.forEach((h, i) => {
-        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
-        x += colW[i];
-      });
-    };
-
-    const drawRow = (row, y) => {
-      let x = 12;
-
-      // Número de Empleado (ID)
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(17, 24, 39);
-      pdf.text(row.id || '—', x + colW[0] / 2, y + 6, { align: 'center' });
-      x += colW[0];
-
-      // Nombre
-      pdf.setFont('helvetica', 'normal');
-      const nombre = row.name.length > 18 ? row.name.substring(0, 18) + '...' : row.name;
-      pdf.text(nombre, x + 2, y + 6);
-      x += colW[1];
-
-      // Área
-      pdf.text(row.area || '—', x + 2, y + 6);
-      x += colW[2];
-
-      // Departamento
-      pdf.text(row.departamento || '—', x + 2, y + 6);
-      x += colW[3];
-
-      // Asistió Hoy
-      pdf.setFont('helvetica', 'bold');
-      if (row.attendedToday) {
-        pdf.setTextColor(16, 185, 129);
-        pdf.text('SÍ', x + colW[4] / 2, y + 6, { align: 'center' });
-      } else {
-        pdf.setTextColor(239, 68, 68);
-        pdf.text('NO', x + colW[4] / 2, y + 6, { align: 'center' });
-      }
-      x += colW[4];
-
-      // Antes de 9:00 AM
-      if (row.before9AM) {
-        pdf.setTextColor(16, 185, 129);
-        pdf.text('SÍ', x + colW[5] / 2, y + 6, { align: 'center' });
-      } else {
-        pdf.setTextColor(239, 68, 68);
-        pdf.text('NO', x + colW[5] / 2, y + 6, { align: 'center' });
-      }
-      x += colW[5];
-
-      // Tipo de Registro
-      pdf.setTextColor(75, 85, 99);
-      pdf.setFont('helvetica', 'normal');
-      const tipo = row.attendanceType || 'Sin registro';
-      const tipoShort = tipo.length > 8 ? tipo.substring(0, 8) + '...' : tipo;
-      pdf.text(tipoShort.toUpperCase(), x + colW[6] / 2, y + 6, { align: 'center' });
-      x += colW[6];
-
-      // Hora Último Registro
-      pdf.text(row.lastTime || '—', x + colW[7] / 2, y + 6, { align: 'center' });
-      x += colW[7];
-
-      // Observación
-      const obs = row.observacion || '—';
-      const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
-      pdf.text(obsShort, x + 2, y + 6);
-
-      // Línea separadora
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, y + 9, pageWidth - 10, y + 9);
-    };
-
-    /* ===============================
-      6️⃣ PAGINADO
-    =============================== */
-    let page = 1;
-    for (let i = 0; i < checkDataFinal.length; i += MAX_ROWS) {
-      if (page > 1) pdf.addPage();
-      drawHeader(page);
-
-      let y = 55;
-      drawTableHeader(y);
-      y += 9;
-
-      checkDataFinal.slice(i, i + MAX_ROWS).forEach((row) => {
-        drawRow(row, y);
-        y += 10;
+        const matchesDate = !dateFilter || r.fecha === dateFilter || r.date === dateFilter;
+        return matchesSearch && matchesDate;
       });
 
-      page++;
-    }
+      if (filteredData.length === 0) {
+        alert('No hay datos de asistencia para exportar');
+        return;
+      }
 
-    /* ===============================
-      7️⃣ FOOTER
-    =============================== */
-    pdf.setPage(totalPages);
-    pdf.setFontSize(7);
-    pdf.setTextColor(107, 114, 128);
-    pdf.text(
-      'Generado por Sistema de Control de Asistencias · Jalisco UTC-6',
-      pageWidth / 2,
-      pageHeight - 12,
-      { align: 'center' }
-    );
+      const wb = XLSX.utils.book_new();
 
-    pdf.save(`verificacion_asistencia_${currentDate.replace(/\//g, '-')}.pdf`);
-  } catch (e) {
-    console.error(e);
-    alert('Error al generar PDF de verificación');
-  }
-};
-
-const exportAttendanceToPDF = async () => {
-  try {
-    const { jsPDF } = await import('jspdf');
-
-    /* ===============================
-      1️⃣ FILTRAR DATOS (igual que en CSV)
-    =============================== */
-    const filteredData = attendanceData.filter(record => {
-      const matchesSearch = 
-        (record.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-         record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (record.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-         record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (record.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-         record.department?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (record.departamento?.toLowerCase().includes(searchTerm.toLowerCase()));
+      const titleRow1 = ['REPORTE DE REGISTROS DE ASISTENCIA'];
+      const titleRow2 = [dateFilter ? `Fecha: ${dateFilter}` : 'Rango: Todas las fechas'];
+      const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
+      const titleRow4 = [];
       
-      const matchesDate = !dateFilter || record.fecha === dateFilter || record.date === dateFilter;
-      
-      return matchesSearch && matchesDate;
-    });
-
-    /* ===============================
-      3️⃣ PDF BASE
-    =============================== */
-    const pdf = new jsPDF('l', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const MAX_ROWS = 12;
-    const totalPages = Math.ceil(filteredData.length / MAX_ROWS);
-
-    /* ===============================
-      4️⃣ HEADER MINIMALISTA
-    =============================== */
-    const drawHeader = (page) => {
-      // Línea superior
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, 26, pageWidth - 10, 26);
-
-      // Título
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(18);
-      pdf.setTextColor(17, 24, 39);
-      pdf.text('Reporte de Asistencias', 15, 15);
-
-      // Subtítulo
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(107, 114, 128);
-      
-      let subtitulo = `Total registros: ${filteredData.length}`;
-      if (dateFilter) subtitulo += ` · Fecha: ${dateFilter}`;
-      if (searchTerm) subtitulo += ` · Búsqueda: "${searchTerm.substring(0, 20)}${searchTerm.length > 20 ? '...' : ''}"`;
-      
-      pdf.text(subtitulo, 15, 22);
-
-      // Página
-      pdf.text(
-        `Página ${page} de ${totalPages}`,
-        pageWidth - 15,
-        22,
-        { align: 'right' }
-      );
-
-      /* ===== Métricas ===== */
-      const y = 30;
-      const cardW = 40;
-      const gap = 6;
-
       const entradas = filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length;
       const salidas = filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length;
       const empleadosUnicos = [...new Set(filteredData.map(r => r.numero_empleado || r.employeeId))].length;
-
-      const metrics = [
-        { t: 'Registros', v: filteredData.length },
-        { t: 'Entradas', v: entradas },
-        { t: 'Empleados', v: empleadosUnicos },
-        { t: 'Fecha', v: dateFilter || 'Todas' }
+      
+      const statsRow1 = [`Total registros: ${filteredData.length}`];
+      const statsRow2 = [`Registros de entrada: ${entradas}`];
+      const statsRow3 = [`Registros de salida: ${salidas}`];
+      const statsRow4 = [`Empleados únicos: ${empleadosUnicos}`];
+      if (searchTerm) {
+        statsRow4.push(`Búsqueda: "${searchTerm}"`);
+      }
+      const statsRow5 = [];
+      
+      const headers = [
+        'Número Empleado',
+        'Nombre',
+        'Área',
+        'Departamento',
+        'Fecha',
+        'Hora',
+        'Tipo de Registro'
       ];
 
-      metrics.forEach((m, i) => {
-        const x = 10 + i * (cardW + gap);
-        pdf.setDrawColor(229, 231, 235);
-        pdf.roundedRect(x, y, cardW, 18, 3, 3);
+      const rows = filteredData.map(r => ([
+        r.numero_empleado || r.employeeId || 'N/A',
+        r.nombre_empleado || r.employeeName || 'SIN NOMBRE',
+        r.area_empleado || r.department || '',
+        r.departamento || '',
+        r.fecha || r.date || '',
+        r.hora || r.time || '',
+        (r.tipo_registro || r.type || 'entrada').toUpperCase()
+      ]));
 
-        pdf.setFontSize(7);
-        pdf.setTextColor(107, 114, 128);
-        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+      const sheetData = [
+        titleRow1,
+        titleRow2,
+        titleRow3,
+        titleRow4,
+        statsRow1,
+        statsRow2,
+        statsRow3,
+        statsRow4,
+        statsRow5,
+        headers,
+        ...rows
+      ];
 
-        pdf.setFontSize(14);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(17, 24, 39);
-        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
-      });
-    };
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-    /* ===============================
-      5️⃣ TABLA
-    =============================== */
-    const colW = [15, 25, 50, 35, 30, 20, 25, 20];
+      const titleStyle = {
+        font: { bold: true, sz: 16, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
 
-    const drawTableHeader = (y) => {
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(10, y, pageWidth - 20, 9, 'F');
+      const subtitleStyle = {
+        font: { bold: true, sz: 12, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
 
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(55, 65, 81);
+      const statsStyle = {
+        font: { bold: true, sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
 
-      const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Fecha', 'Hora', 'Tipo'];
-      let x = 12;
-      headers.forEach((h, i) => {
-        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
-        x += colW[i];
-      });
-    };
+      const headerStyle = {
+        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '2E5A8D' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      };
 
-    const drawRow = (row, index, y) => {
-      let x = 12;
+      const cellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
 
-      // Número Empleado
-      // Número de Empleado
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(17, 24, 39);
-      pdf.text(row.numero_empleado, x + colW[0] / 2, y + 6, { align: 'center' });
-      x += colW[0];
+      const nombreCellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
 
-      // Nombre
-      pdf.setFont('helvetica', 'normal');
-      const nombre = (row.nombre_empleado || row.employeeName || 'SIN NOMBRE');
-      const nombreShort = nombre.length > 20 ? nombre.substring(0, 20) + '...' : nombre;
-      pdf.text(nombreShort, x + 2, y + 6);
-      x += colW[2];
+      const range = XLSX.utils.decode_range(ws['!ref']);
 
-      // Área
-      pdf.text(row.area_empleado || row.department || '—', x + 2, y + 6);
-      x += colW[3];
+      for (let R = 0; R <= range.e.r; R++) {
+        for (let C = 0; C <= range.e.c; C++) {
+          const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (!cell) continue;
 
-      // Departamento
-      pdf.text(row.departamento || '—', x + 2, y + 6);
-      x += colW[4];
+          if (R === 0 || R === 1) {
+            cell.s = titleStyle;
+            if (R === 0) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+            }
+            if (R === 1) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+            }
+          }
 
-      // Fecha
-      const fecha = row.fecha || row.date || '';
-      pdf.text(fecha, x + colW[5] / 2, y + 6, { align: 'center' });
-      x += colW[5];
+          if (R === 2) {
+            cell.s = subtitleStyle;
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+          }
 
-      // Hora
-      const hora = row.hora || row.time || '';
-      pdf.text(hora, x + colW[6] / 2, y + 6, { align: 'center' });
-      x += colW[6];
+          if (R >= 4 && R <= 7) {
+            cell.s = statsStyle;
+          }
 
-      // Tipo
-      pdf.setFont('helvetica', 'bold');
-      const tipo = row.tipo_registro || row.type || 'entrada';
-      if (tipo === 'entrada') {
-        pdf.setTextColor(16, 185, 129);
-        pdf.text('ENTRADA', x + colW[7] / 2, y + 6, { align: 'center' });
-      } else {
-        pdf.setTextColor(59, 130, 246);
-        pdf.text('SALIDA', x + colW[7] / 2, y + 6, { align: 'center' });
+          if (R === 10) {
+            cell.s = headerStyle;
+          }
+
+          if (R > 10) {
+            if (C === 1) {
+              cell.s = nombreCellStyle;
+            }
+            else {
+              cell.s = cellStyle;
+            }
+          }
+        }
       }
 
-      // Línea separadora
-      pdf.setDrawColor(229, 231, 235);
-      pdf.line(10, y + 9, pageWidth - 10, y + 9);
-    };
+      ws['!cols'] = [
+        { wch: 16 },
+        { wch: 30 },
+        { wch: 15 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 16 }
+      ];
 
-    /* ===============================
-      6️⃣ PAGINADO
-    =============================== */
-    let page = 1;
-    for (let i = 0; i < filteredData.length; i += MAX_ROWS) {
-      if (page > 1) pdf.addPage();
-      drawHeader(page);
+      ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
 
-      let y = 55;
-      drawTableHeader(y);
-      y += 9;
+      XLSX.utils.book_append_sheet(wb, ws, 'Registros Asistencia');
 
-      filteredData.slice(i, i + MAX_ROWS).forEach((row, index) => {
-        drawRow(row, i + index, y);
-        y += 10;
+      let fileName = 'REPORTE_REGISTROS_ASISTENCIA';
+      if (dateFilter) fileName += `_${dateFilter.replace(/\//g, '-')}`;
+      if (searchTerm) {
+        const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
+        fileName += `_BUSQUEDA_${termShort}`;
+      }
+      fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
+      
+      XLSX.writeFile(wb, fileName);
+
+      console.log('✅ Registros de asistencia exportados con diseño de imagen');
+    } catch (e) {
+      console.error('❌ Error al exportar registros:', e);
+      alert('Error al exportar los registros. Por favor, intente nuevamente.');
+    }
+  };
+
+  // Exportar lista de empleados con diseño similar
+  const exportEmployeesToExcel = () => {
+    try {
+      if (employees.length === 0) {
+        alert('No hay empleados para exportar');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      const titleRow1 = ['REPORTE DE EMPLEADOS REGISTRADOS'];
+      const titleRow2 = ['Sistema de Control de Asistencias'];
+      const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
+      const titleRow4 = [];
+      
+      const activos = employees.filter(e => e.activo).length;
+      const inactivos = employees.filter(e => !e.activo).length;
+      const porcentajeActivos = employees.length > 0 ? ((activos / employees.length) * 100).toFixed(1) : 0;
+      
+      const statsRow1 = [`Total empleados: ${employees.length}`];
+      const statsRow2 = [`Empleados activos: ${activos}`];
+      const statsRow3 = [`Empleados inactivos: ${inactivos}`];
+      const statsRow4 = [`Porcentaje activos: ${porcentajeActivos}%`];
+      const statsRow5 = [];
+      
+      const headers = [
+        'Número Empleado',
+        'Nombre Completo',
+        'Área',
+        'Departamento',
+        'Estado'
+      ];
+
+      const rows = employees.map(e => ([
+        e.numero_empleado,
+        e.nombre_completo,
+        e.area,
+        e.departamento || '—',
+        e.activo ? 'ACTIVO' : 'INACTIVO'
+      ]));
+
+      const sheetData = [
+        titleRow1,
+        titleRow2,
+        titleRow3,
+        titleRow4,
+        statsRow1,
+        statsRow2,
+        statsRow3,
+        statsRow4,
+        statsRow5,
+        headers,
+        ...rows
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      const titleStyle = {
+        font: { bold: true, sz: 16, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      const subtitleStyle = {
+        font: { bold: true, sz: 12, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
+
+      const statsStyle = {
+        font: { bold: true, sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
+
+      const headerStyle = {
+        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '2E5A8D' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      };
+
+      const cellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const nombreCellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const estadoCellStyle = {
+        font: { bold: true, sz: 11 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      for (let R = 0; R <= range.e.r; R++) {
+        for (let C = 0; C <= range.e.c; C++) {
+          const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (!cell) continue;
+
+          if (R === 0 || R === 1) {
+            cell.s = titleStyle;
+            if (R === 0) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+            }
+            if (R === 1) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+            }
+          }
+
+          if (R === 2) {
+            cell.s = subtitleStyle;
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+          }
+
+          if (R >= 4 && R <= 7) {
+            cell.s = statsStyle;
+          }
+
+          if (R === 10) {
+            cell.s = headerStyle;
+          }
+
+          if (R > 10) {
+            if (C === 1) {
+              cell.s = nombreCellStyle;
+            }
+            else if (C === headers.length - 1) {
+              const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
+              if (cellValue === 'ACTIVO') {
+                cell.s = { 
+                  ...estadoCellStyle,
+                  font: { ...estadoCellStyle.font, color: { rgb: '228B22' } },
+                  fill: { fgColor: { rgb: 'F0FFF0' } }
+                };
+              } else {
+                cell.s = { 
+                  ...estadoCellStyle,
+                  font: { ...estadoCellStyle.font, color: { rgb: 'DC143C' } },
+                  fill: { fgColor: { rgb: 'FFF0F0' } }
+                };
+              }
+            }
+            else {
+              cell.s = cellStyle;
+            }
+          }
+        }
+      }
+
+      ws['!cols'] = [
+        { wch: 16 },
+        { wch: 35 },
+        { wch: 15 },
+        { wch: 18 },
+        { wch: 14 }
+      ];
+
+      ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Empleados');
+
+      const fileName = `REPORTE_EMPLEADOS_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      console.log('✅ Lista de empleados exportada con diseño de imagen');
+    } catch (e) {
+      console.error('❌ Error al exportar empleados:', e);
+      alert('Error al exportar la lista de empleados. Por favor, intente nuevamente.');
+    }
+  };
+
+  const exportEmployeesToPDF = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const MAX_ROWS = 12;
+      const totalPages = Math.ceil(employees.length / MAX_ROWS);
+
+      const drawHeader = (page) => {
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, 26, pageWidth - 10, 26);
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(18);
+        pdf.setTextColor(17, 24, 39);
+        pdf.text('Reporte de Empleados', 15, 15);
+
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(
+          `Total empleados: ${employees.length} · Activos: ${employees.filter(e => e.activo).length}`,
+          15,
+          22
+        );
+
+        pdf.text(
+          `Página ${page} de ${totalPages}`,
+          pageWidth - 15,
+          22,
+          { align: 'right' }
+        );
+
+        const y = 30;
+        const cardW = 45;
+        const gap = 6;
+
+        const activos = employees.filter(e => e.activo).length;
+        const inactivos = employees.filter(e => !e.activo).length;
+
+        const metrics = [
+          { t: 'Total', v: employees.length },
+          { t: 'Activos', v: activos },
+          { t: 'Inactivos', v: inactivos },
+          { t: '% Activos', v: `${((activos / employees.length) * 100).toFixed(1)}%` }
+        ];
+
+        metrics.forEach((m, i) => {
+          const x = 15 + i * (cardW + gap);
+          pdf.setDrawColor(229, 231, 235);
+          pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+          pdf.setFontSize(7);
+          pdf.setTextColor(107, 114, 128);
+          pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+          pdf.setFontSize(14);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(17, 24, 39);
+          pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+        });
+      };
+
+      const colW = [20, 60, 40, 45, 20, 30];
+
+      const drawTableHeader = (y) => {
+        pdf.setFillColor(243, 244, 246);
+        pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(55, 65, 81);
+
+        const headers = ['N°', 'Nombre Completo', 'Área', 'Departamento', 'Estado', 'Última Actualización'];
+        let x = 12;
+        headers.forEach((h, i) => {
+          pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+          x += colW[i];
+        });
+      };
+
+      const drawRow = (row, index, y) => {
+        let x = 12;
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(row.numero_empleado, x + colW[0] / 2, y + 6, { align: 'center' });
+        x += colW[0];
+
+        pdf.setFont('helvetica', 'normal');
+        const nombre = row.nombre_completo.length > 25 ? row.nombre_completo.substring(0, 25) + '...' : row.nombre_completo;
+        pdf.text(nombre, x + 2, y + 6);
+        x += colW[1];
+
+        pdf.text(row.area || '—', x + 2, y + 6);
+        x += colW[2];
+
+        pdf.text(row.departamento || '—', x + 2, y + 6);
+        x += colW[3];
+
+        pdf.setFont('helvetica', 'bold');
+        if (row.activo) {
+          pdf.setTextColor(16, 185, 129);
+          pdf.text('ACTIVO', x + colW[4] / 2, y + 6, { align: 'center' });
+        } else {
+          pdf.setTextColor(239, 68, 68);
+          pdf.text('INACTIVO', x + colW[4] / 2, y + 6, { align: 'center' });
+        }
+        x += colW[4];
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(107, 114, 128);
+        const hoy = new Date().toLocaleDateString('es-MX');
+        pdf.text(hoy, x + colW[5] / 2, y + 6, { align: 'center' });
+
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, y + 9, pageWidth - 10, y + 9);
+      };
+
+      let page = 1;
+      for (let i = 0; i < employees.length; i += MAX_ROWS) {
+        if (page > 1) pdf.addPage();
+        drawHeader(page);
+
+        let y = 55;
+        drawTableHeader(y);
+        y += 9;
+
+        employees.slice(i, i + MAX_ROWS).forEach((row, index) => {
+          drawRow(row, i + index, y);
+          y += 10;
+        });
+
+        page++;
+      }
+
+      pdf.setPage(totalPages);
+      pdf.setFontSize(7);
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        'Sistema de Control de Asistencias · Todos los derechos reservados',
+        pageWidth / 2,
+        pageHeight - 12,
+        { align: 'center' }
+      );
+
+      pdf.save(`reporte_empleados_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('Error al generar PDF de empleados');
+    }
+  };
+
+  // Exportar verificación de asistencia diaria con diseño similar
+  const exportAttendanceCheckToExcel = async () => {
+    try {
+      if (attendanceCheckData.length === 0) {
+        alert('No hay datos de verificación para exportar');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      const titleRow1 = ['VERIFICACIÓN DIARIA DE ASISTENCIA'];
+      const titleRow2 = [`Fecha: ${currentDate}`];
+      const titleRow3 = [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`];
+      const titleRow4 = [];
+      
+      const asistieron = attendanceCheckData.filter(e => e.attendedToday).length;
+      const antes9AM = attendanceCheckData.filter(e => e.before9AM).length;
+      const sinRegistro = attendanceCheckData.filter(e => !e.attendedToday).length;
+      const porcentaje = attendanceCheckData.length > 0 ? ((asistieron / attendanceCheckData.length) * 100).toFixed(1) : 0;
+      
+      const statsRow1 = [`Total empleados: ${attendanceCheckData.length}`];
+      const statsRow2 = [`Asistieron hoy: ${asistieron}`];
+      const statsRow3 = [`Antes de 9:00 AM: ${antes9AM}`];
+      const statsRow4 = [`Sin registro: ${sinRegistro}`];
+      const statsRow5 = [`Porcentaje de asistencia: ${porcentaje}%`];
+      const statsRow6 = [];
+      
+      const headers = [
+        'Número Empleado',
+        'Nombre',
+        'Área',
+        'Departamento',
+        'Asistió Hoy',
+        'Antes 9:00 AM',
+        'Tipo de Registro',
+        'Última Hora',
+        'Observación'
+      ];
+
+      const rows = attendanceCheckData.map(e => {
+        const observacion = observaciones[e.id] || '';
+        
+        return [
+          e.id,
+          e.name,
+          e.area,
+          e.departamento || '',
+          e.attendedToday ? 'SÍ' : 'NO',
+          e.before9AM ? 'SÍ' : 'NO',
+          e.attendanceType?.toUpperCase() || 'SIN REGISTRO',
+          e.lastTime || '--:--',
+          observacion
+        ];
       });
 
-      page++;
+      const sheetData = [
+        titleRow1,
+        titleRow2,
+        titleRow3,
+        titleRow4,
+        statsRow1,
+        statsRow2,
+        statsRow3,
+        statsRow4,
+        statsRow5,
+        statsRow6,
+        headers,
+        ...rows
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      const titleStyle = {
+        font: { bold: true, sz: 16, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      const subtitleStyle = {
+        font: { bold: true, sz: 12, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
+
+      const statsStyle = {
+        font: { bold: true, sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
+
+      const headerStyle = {
+        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '2E5A8D' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      };
+
+      const cellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const nombreCellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const observacionCellStyle = {
+        font: { sz: 11, color: { rgb: '000000' } },
+        alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+        }
+      };
+
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      for (let R = 0; R <= range.e.r; R++) {
+        for (let C = 0; C <= range.e.c; C++) {
+          const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (!cell) continue;
+
+          if (R === 0 || R === 1) {
+            cell.s = titleStyle;
+            if (R === 0) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+            }
+            if (R === 1) {
+              if (!ws['!merges']) ws['!merges'] = [];
+              ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+            }
+          }
+
+          if (R === 2) {
+            cell.s = subtitleStyle;
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+          }
+
+          if (R >= 4 && R <= 8) {
+            cell.s = statsStyle;
+          }
+
+          if (R === 10) {
+            cell.s = headerStyle;
+          }
+
+          if (R > 10) {
+            if (C === 1) {
+              cell.s = nombreCellStyle;
+            }
+            else if (C === headers.length - 1) {
+              cell.s = observacionCellStyle;
+            }
+            else {
+              cell.s = cellStyle;
+            }
+          }
+        }
+      }
+
+      ws['!cols'] = [
+        { wch: 16 },
+        { wch: 30 },
+        { wch: 15 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 40 }
+      ];
+
+      ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
+
+      const safeDate = currentDate.replace(/\//g, '-');
+      XLSX.utils.book_append_sheet(wb, ws, `Verificacion ${safeDate}`);
+
+      const fileName = `VERIFICACION_ASISTENCIA_${currentDate.replace(/\//g, '-')}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+
+      console.log('✅ Verificación diaria exportada con diseño de imagen');
+    } catch (e) {
+      console.error('❌ Error al exportar verificación:', e);
+      alert('Error al exportar la verificación. Por favor, intente nuevamente.');
     }
+  };
 
-    /* ===============================
-      7️⃣ FOOTER
-    =============================== */
-    pdf.setPage(totalPages);
-    pdf.setFontSize(7);
-    pdf.setTextColor(107, 114, 128);
-    pdf.text(
-      `Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} · Zona: Jalisco (UTC-6)`,
-      pageWidth / 2,
-      pageHeight - 12,
-      { align: 'center' }
-    );
+  const exportAttendanceCheckToPDF = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
 
-    // Nombre del archivo
-    let filename = 'reporte_asistencias';
-    if (dateFilter) filename += `_${dateFilter.replace(/\//g, '-')}`;
-    if (searchTerm) {
-      const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
-      filename += `_busqueda_${termShort}`;
+      let observacionesMap = {};
+      try {
+        const obsRes = await fetch('/api/observaciones');
+        if (obsRes.ok) {
+          const data = await obsRes.json();
+          data.forEach(obs => {
+            observacionesMap[obs.employeeId] = obs.text;
+          });
+        }
+      } catch {}
+
+      const checkDataFinal = attendanceCheckData.map(employee => {
+        const observacion = observacionesMap[employee.id] || '—';
+        
+        return {
+          ...employee,
+          observacion: observacion.trim() ? observacion : '—'
+        };
+      });
+
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const MAX_ROWS = 12;
+      const totalPages = Math.ceil(checkDataFinal.length / MAX_ROWS);
+
+      const drawHeader = (page) => {
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, 26, pageWidth - 10, 26);
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(18);
+        pdf.setTextColor(17, 24, 39);
+        pdf.text('Verificación de Asistencia Diaria', 15, 15);
+
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(
+          `Fecha: ${currentDate} · Hora de corte: 9:00 AM`,
+          15,
+          22
+        );
+
+        pdf.text(
+          `Página ${page} de ${totalPages}`,
+          pageWidth - 15,
+          22,
+          { align: 'right' }
+        );
+
+        const y = 30;
+        const cardW = 40;
+        const gap = 6;
+
+        const asistieron = checkDataFinal.filter(e => e.attendedToday).length;
+        const antes9AM = checkDataFinal.filter(e => e.before9AM).length;
+        const sinRegistro = checkDataFinal.filter(e => !e.attendedToday).length;
+        const porcentaje = checkDataFinal.length > 0 ? ((asistieron / checkDataFinal.length) * 100).toFixed(1) : 0;
+
+        const metrics = [
+          { t: 'Empleados', v: checkDataFinal.length },
+          { t: 'Asistieron', v: asistieron },
+          { t: 'Antes 9 AM', v: antes9AM },
+          { t: '% Asistencia', v: `${porcentaje}%` },
+          { t: 'Sin Registro', v: sinRegistro }
+        ];
+
+        metrics.forEach((m, i) => {
+          const x = 10 + i * (cardW + gap);
+          pdf.setDrawColor(229, 231, 235);
+          pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+          pdf.setFontSize(7);
+          pdf.setTextColor(107, 114, 128);
+          pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+          pdf.setFontSize(14);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(17, 24, 39);
+          pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+        });
+      };
+
+      const colW = [22, 45, 28, 32, 18, 20, 22, 18, 38];
+
+      const drawTableHeader = (y) => {
+        pdf.setFillColor(243, 244, 246);
+        pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(55, 65, 81);
+
+        const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Asistió', 'Antes 9AM', 'Tipo', 'Hora', 'Observación'];
+        let x = 12;
+        headers.forEach((h, i) => {
+          pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+          x += colW[i];
+        });
+      };
+
+      const drawRow = (row, y) => {
+        let x = 12;
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(row.id || '—', x + colW[0] / 2, y + 6, { align: 'center' });
+        x += colW[0];
+
+        pdf.setFont('helvetica', 'normal');
+        const nombre = row.name.length > 18 ? row.name.substring(0, 18) + '...' : row.name;
+        pdf.text(nombre, x + 2, y + 6);
+        x += colW[1];
+
+        pdf.text(row.area || '—', x + 2, y + 6);
+        x += colW[2];
+
+        pdf.text(row.departamento || '—', x + 2, y + 6);
+        x += colW[3];
+
+        pdf.setFont('helvetica', 'bold');
+        if (row.attendedToday) {
+          pdf.setTextColor(16, 185, 129);
+          pdf.text('SÍ', x + colW[4] / 2, y + 6, { align: 'center' });
+        } else {
+          pdf.setTextColor(239, 68, 68);
+          pdf.text('NO', x + colW[4] / 2, y + 6, { align: 'center' });
+        }
+        x += colW[4];
+
+        if (row.before9AM) {
+          pdf.setTextColor(16, 185, 129);
+          pdf.text('SÍ', x + colW[5] / 2, y + 6, { align: 'center' });
+        } else {
+          pdf.setTextColor(239, 68, 68);
+          pdf.text('NO', x + colW[5] / 2, y + 6, { align: 'center' });
+        }
+        x += colW[5];
+
+        pdf.setTextColor(75, 85, 99);
+        pdf.setFont('helvetica', 'normal');
+        const tipo = row.attendanceType || 'Sin registro';
+        const tipoShort = tipo.length > 8 ? tipo.substring(0, 8) + '...' : tipo;
+        pdf.text(tipoShort.toUpperCase(), x + colW[6] / 2, y + 6, { align: 'center' });
+        x += colW[6];
+
+        pdf.text(row.lastTime || '—', x + colW[7] / 2, y + 6, { align: 'center' });
+        x += colW[7];
+
+        const obs = row.observacion || '—';
+        const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
+        pdf.text(obsShort, x + 2, y + 6);
+
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, y + 9, pageWidth - 10, y + 9);
+      };
+
+      let page = 1;
+      for (let i = 0; i < checkDataFinal.length; i += MAX_ROWS) {
+        if (page > 1) pdf.addPage();
+        drawHeader(page);
+
+        let y = 55;
+        drawTableHeader(y);
+        y += 9;
+
+        checkDataFinal.slice(i, i + MAX_ROWS).forEach((row) => {
+          drawRow(row, y);
+          y += 10;
+        });
+
+        page++;
+      }
+
+      pdf.setPage(totalPages);
+      pdf.setFontSize(7);
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        'Generado por Sistema de Control de Asistencias · Jalisco UTC-6',
+        pageWidth / 2,
+        pageHeight - 12,
+        { align: 'center' }
+      );
+
+      pdf.save(`verificacion_asistencia_${currentDate.replace(/\//g, '-')}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('Error al generar PDF de verificación');
     }
-    filename += `_${new Date().toISOString().split('T')[0]}`;
+  };
 
-    pdf.save(`${filename}.pdf`);
-  } catch (e) {
-    console.error(e);
-    alert('Error al generar PDF de asistencias');
-  }
-};
+  const exportAttendanceToPDF = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+
+      const filteredData = attendanceData.filter(record => {
+        const matchesSearch = 
+          (record.numero_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           record.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (record.nombre_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           record.employeeName?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (record.area_empleado?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           record.department?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (record.departamento?.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        const matchesDate = !dateFilter || record.fecha === dateFilter || record.date === dateFilter;
+        
+        return matchesSearch && matchesDate;
+      });
+
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const MAX_ROWS = 12;
+      const totalPages = Math.ceil(filteredData.length / MAX_ROWS);
+
+      const drawHeader = (page) => {
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, 26, pageWidth - 10, 26);
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(18);
+        pdf.setTextColor(17, 24, 39);
+        pdf.text('Reporte de Asistencias', 15, 15);
+
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(107, 114, 128);
+        
+        let subtitulo = `Total registros: ${filteredData.length}`;
+        if (dateFilter) subtitulo += ` · Fecha: ${dateFilter}`;
+        if (searchTerm) subtitulo += ` · Búsqueda: "${searchTerm.substring(0, 20)}${searchTerm.length > 20 ? '...' : ''}"`;
+        
+        pdf.text(subtitulo, 15, 22);
+
+        pdf.text(
+          `Página ${page} de ${totalPages}`,
+          pageWidth - 15,
+          22,
+          { align: 'right' }
+        );
+
+        const y = 30;
+        const cardW = 40;
+        const gap = 6;
+
+        const entradas = filteredData.filter(r => (r.tipo_registro || r.type) === 'entrada').length;
+        const salidas = filteredData.filter(r => (r.tipo_registro || r.type) === 'salida').length;
+        const empleadosUnicos = [...new Set(filteredData.map(r => r.numero_empleado || r.employeeId))].length;
+
+        const metrics = [
+          { t: 'Registros', v: filteredData.length },
+          { t: 'Entradas', v: entradas },
+          { t: 'Empleados', v: empleadosUnicos },
+          { t: 'Fecha', v: dateFilter || 'Todas' }
+        ];
+
+        metrics.forEach((m, i) => {
+          const x = 10 + i * (cardW + gap);
+          pdf.setDrawColor(229, 231, 235);
+          pdf.roundedRect(x, y, cardW, 18, 3, 3);
+
+          pdf.setFontSize(7);
+          pdf.setTextColor(107, 114, 128);
+          pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+          pdf.setFontSize(14);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(17, 24, 39);
+          pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+        });
+      };
+
+      const colW = [15, 25, 50, 35, 30, 20, 25, 20];
+
+      const drawTableHeader = (y) => {
+        pdf.setFillColor(243, 244, 246);
+        pdf.rect(10, y, pageWidth - 20, 9, 'F');
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(55, 65, 81);
+
+        const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Fecha', 'Hora', 'Tipo'];
+        let x = 12;
+        headers.forEach((h, i) => {
+          pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+          x += colW[i];
+        });
+      };
+
+      const drawRow = (row, index, y) => {
+        let x = 12;
+
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(row.numero_empleado, x + colW[0] / 2, y + 6, { align: 'center' });
+        x += colW[0];
+
+        pdf.setFont('helvetica', 'normal');
+        const nombre = (row.nombre_empleado || row.employeeName || 'SIN NOMBRE');
+        const nombreShort = nombre.length > 20 ? nombre.substring(0, 20) + '...' : nombre;
+        pdf.text(nombreShort, x + 2, y + 6);
+        x += colW[2];
+
+        pdf.text(row.area_empleado || row.department || '—', x + 2, y + 6);
+        x += colW[3];
+
+        pdf.text(row.departamento || '—', x + 2, y + 6);
+        x += colW[4];
+
+        const fecha = row.fecha || row.date || '';
+        pdf.text(fecha, x + colW[5] / 2, y + 6, { align: 'center' });
+        x += colW[5];
+
+        const hora = row.hora || row.time || '';
+        pdf.text(hora, x + colW[6] / 2, y + 6, { align: 'center' });
+        x += colW[6];
+
+        pdf.setFont('helvetica', 'bold');
+        const tipo = row.tipo_registro || row.type || 'entrada';
+        if (tipo === 'entrada') {
+          pdf.setTextColor(16, 185, 129);
+          pdf.text('ENTRADA', x + colW[7] / 2, y + 6, { align: 'center' });
+        } else {
+          pdf.setTextColor(59, 130, 246);
+          pdf.text('SALIDA', x + colW[7] / 2, y + 6, { align: 'center' });
+        }
+
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(10, y + 9, pageWidth - 10, y + 9);
+      };
+
+      let page = 1;
+      for (let i = 0; i < filteredData.length; i += MAX_ROWS) {
+        if (page > 1) pdf.addPage();
+        drawHeader(page);
+
+        let y = 55;
+        drawTableHeader(y);
+        y += 9;
+
+        filteredData.slice(i, i + MAX_ROWS).forEach((row, index) => {
+          drawRow(row, i + index, y);
+          y += 10;
+        });
+
+        page++;
+      }
+
+      pdf.setPage(totalPages);
+      pdf.setFontSize(7);
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        `Generado: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} · Zona: Jalisco (UTC-6)`,
+        pageWidth / 2,
+        pageHeight - 12,
+        { align: 'center' }
+      );
+
+      let filename = 'reporte_asistencias';
+      if (dateFilter) filename += `_${dateFilter.replace(/\//g, '-')}`;
+      if (searchTerm) {
+        const termShort = searchTerm.substring(0, 10).replace(/\s+/g, '_');
+        filename += `_busqueda_${termShort}`;
+      }
+      filename += `_${new Date().toISOString().split('T')[0]}`;
+
+      pdf.save(`${filename}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('Error al generar PDF de asistencias');
+    }
+  };
 
   // ============ FUNCIONES DE FILTRO ============
   
@@ -3458,6 +3124,16 @@ const exportAttendanceToPDF = async () => {
     setFormErrors({});
     setEditingEmployee(null);
     setShowEmployeeForm(false);
+  };
+
+  // ============ FUNCIONES PARA CARDS DESPLEGABLES ============
+  
+  // Función para alternar el estado de una tabla
+  const toggleTable = (tableName) => {
+    setOpenTables(prev => ({
+      ...prev,
+      [tableName]: !prev[tableName]
+    }));
   };
 
   // ============ COMPONENTES ============
@@ -3677,7 +3353,7 @@ const exportAttendanceToPDF = async () => {
             </div>
           </div>
 
-          {/* Registros Totales */}
+          {/* Registros Totales 
           <div className="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow duration-200">
             <div className="flex items-center">
               <div className="flex-shrink-0 bg-gradient-to-br from-purple-100 to-purple-50 p-3 rounded-lg">
@@ -3689,6 +3365,7 @@ const exportAttendanceToPDF = async () => {
               </div>
             </div>
           </div>
+          */}
 
           {/* Registros Hoy */}
           <div className="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow duration-200">
@@ -3746,110 +3423,125 @@ const exportAttendanceToPDF = async () => {
           </div>
         </div>
 
-        {/* ============ SECCIÓN: VERIFICACIÓN DE ASISTENCIA ============ */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-              <ClockIcon className="w-6 h-6 mr-2 text-red-600" />
-              Verificación de Asistencia Hoy ({currentDate})
-            </h2>
-            <div className="flex gap-3" ref={exportCheckMenuRef}>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    const menu = document.getElementById('export-check-menu');
-                    if (menu) {
-                      menu.classList.toggle('hidden');
-                    }
-                  }}
-                  disabled={attendanceCheckData.length === 0}
-                  className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 disabled:opacity-50"
-                >
-                  <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-                  Exportar Verificación
-                  <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {/* Menú desplegable de exportación para verificación - CORREGIDO */}
-                <div id="export-check-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                  <div className="py-1" role="menu">
+        {/* ============ CARD: VERIFICACIÓN DE ASISTENCIA ============ */}
+        <div className="mb-6">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300">
+            {/* Encabezado de la card */}
+            <div 
+              className={`p-6 border-b border-gray-200 cursor-pointer transition-colors duration-200 ${
+                openTables.verification ? 'bg-gradient-to-r from-red-50 to-red-100' : 'hover:bg-gray-50'
+              }`}
+              onClick={() => toggleTable('verification')}
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center">
+                  <ClockIcon className={`w-6 h-6 mr-3 ${openTables.verification ? 'text-red-600' : 'text-gray-600'}`} />
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800">
+                      Verificación de Asistencia Hoy ({currentDate})
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Estado de asistencia de empleados activos
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {/* Contador de empleados sin asistencia */}
+                  <div className="text-sm text-gray-500">
+                    <span className="text-red-600 font-medium">
+                      {attendanceCheckData.filter(e => !e.attendedToday).length}
+                    </span> sin asistencia
+                  </div>
+                  
+                  {/* Botón de despliegue */}
+                  {openTables.verification ? (
+                    <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                  ) : (
+                    <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Contenido de la card (se muestra solo si está abierta) */}
+            {openTables.verification && (
+              <div className="p-6">
+                {/* Botones de exportación */}
+                <div className="flex justify-between items-center mb-6">
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium">{attendanceCheckData.length}</span> empleados activos
+                    <span className="mx-2">•</span>
+                    <span className="text-green-600 font-medium">
+                      {attendanceCheckData.filter(e => e.attendedToday).length}
+                    </span> asistieron hoy
+                  </div>
+                  <div className="flex gap-3" ref={exportCheckMenuRef}>
+                    <div className="relative">
+                      <button
+                        onClick={() => {
+                          const menu = document.getElementById('export-check-menu');
+                          if (menu) {
+                            menu.classList.toggle('hidden');
+                          }
+                        }}
+                        disabled={attendanceCheckData.length === 0}
+                        className="flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 disabled:opacity-50"
+                      >
+                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+                        Exportar Verificación
+                        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      
+                      {/* Menú desplegable de exportación para verificación */}
+                      <div id="export-check-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                        <div className="py-1" role="menu">
+                          <button
+                            onClick={() => {
+                              exportAttendanceCheckToExcel();
+                              const menu = document.getElementById('export-check-menu');
+                              if (menu) menu.classList.add('hidden');
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            role="menuitem"
+                          >
+                            <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Exportar Hoy (Excel)
+                          </button>
+                          <button
+                            onClick={() => {
+                              exportAttendanceCheckToPDF();
+                              const menu = document.getElementById('export-check-menu');
+                              if (menu) menu.classList.add('hidden');
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            role="menuitem"
+                          >
+                            <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Exportar PDF
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    
                     <button
-                      onClick={() => {
-                        exportAttendanceCheckToExcel();
-                        const menu = document.getElementById('export-check-menu');
-                        if (menu) menu.classList.add('hidden');
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      role="menuitem"
+                      onClick={fetchAttendanceCheckData}
+                      disabled={attendanceCheckLoading}
+                      className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
                     >
-                      <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      Exportar Hoy (Excel)
-                    </button>
-                    <button
-                      onClick={() => {
-                        exportAttendanceCheckToPDF();
-                        const menu = document.getElementById('export-check-menu');
-                        if (menu) menu.classList.add('hidden');
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      role="menuitem"
-                    >
-                      <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      Exportar PDF
+                      <ArrowPathIcon className={`w-4 h-4 mr-2 ${attendanceCheckLoading ? 'animate-spin' : ''}`} />
+                      Actualizar
                     </button>
                   </div>
                 </div>
-              </div>
-              
-              <button
-                onClick={fetchAttendanceCheckData}
-                disabled={attendanceCheckLoading}
-                className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
-              >
-                <ArrowPathIcon className={`w-4 h-4 mr-2 ${attendanceCheckLoading ? 'animate-spin' : ''}`} />
-                Actualizar
-              </button>
-            </div>
-          </div>
 
-          {/* Tabla de Verificación de Asistencia */}
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800">
-                    Estado de Asistencia de Empleados Activos
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Empleados que no registraron antes de las 9:00 AM aparecen en rojo
-                  </p>
-                </div>
-                <div className="text-sm text-gray-500 flex items-center">
-                  <ClockIcon className="w-4 h-4 mr-1" />
-                  Hora actual: {getCurrentJaliscoTime()}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4">
-              {attendanceCheckLoading ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
-                  <p className="mt-2 text-gray-600">Verificando asistencia...</p>
-                </div>
-              ) : attendanceCheckData.length === 0 ? (
-                <div className="text-center py-8">
-                  <UsersIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No hay empleados activos para verificar</p>
-                </div>
-              ) : (
-                <>
+                {/* Tabla de Verificación de Asistencia */}
+                <div className="bg-gray-50 rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -4031,346 +3723,328 @@ const exportAttendanceToPDF = async () => {
                     onPageChange={(page) => setCurrentCheckPage(page)}
                     dataLength={attendanceCheckData.length}
                   />
-                </>
-              )}
-            </div>
-
-            {/* Resumen de la tabla de verificación */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
-                <div className="mb-2 sm:mb-0">
-                  <span className="font-medium">{attendanceCheckData.length}</span> empleados activos
-                  <span className="mx-2">•</span>
-                  <span className="text-green-600 font-medium">
-                    {attendanceCheckData.filter(e => e.attendedToday).length}
-                  </span> asistieron hoy
-                  <span className="mx-2">•</span>
-                  <span className="text-red-600 font-medium">
-                    {attendanceCheckData.filter(e => !e.attendedToday).length}
-                  </span> sin asistencia
                 </div>
-              </div>
-            </div>
 
-            {/* Sección: Empleados que no asistieron hoy */}
-            <div className="mt-8">
-              <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-                {/* Encabezado con botón de despliegue */}
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                          <ExclamationCircleIcon className="w-5 h-5 mr-2 text-red-600" />
-                          Empleados que no asistieron hoy ({currentDate})
-                        </h3>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Listado de empleados activos sin registro de asistencia
-                        </p>
-                      </div>
-                      
-                      {/* Contador y botón de despliegue */}
-                      <div className="flex items-center space-x-4">
-                        <div className="text-sm text-gray-500">
-                          <span className="text-red-600 font-medium">
-                            {attendanceCheckData.filter(e => !e.attendedToday).length}
-                          </span> empleados sin asistencia
+                {/* Sección: Empleados que no asistieron hoy */}
+                <div className="mt-6">
+                  <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                    {/* Encabezado con botón de despliegue */}
+                    <div className="p-6 border-b border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 flex items-center justify-between">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                              <ExclamationCircleIcon className="w-5 h-5 mr-2 text-red-600" />
+                              Empleados que no asistieron hoy ({currentDate})
+                            </h3>
+                            <p className="text-sm text-gray-600 mt-1">
+                              Listado de empleados activos sin registro de asistencia
+                            </p>
+                          </div>
+                          
+                          {/* Contador y botón de despliegue */}
+                          <div className="flex items-center space-x-4">
+                            <div className="text-sm text-gray-500">
+                              <span className="text-red-600 font-medium">
+                                {attendanceCheckData.filter(e => !e.attendedToday).length}
+                              </span> empleados sin asistencia
+                            </div>
+                            
+                            {/* Botón para desplegar/plegar */}
+                            <button
+                              onClick={() => setShowEmployeesWithoutAttendance(!showEmployeesWithoutAttendance)}
+                              className="ml-4 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                              aria-label={showEmployeesWithoutAttendance ? "Ocultar lista" : "Mostrar lista"}
+                            >
+                              {showEmployeesWithoutAttendance ? (
+                                <ChevronUpIcon className="w-5 h-5" />
+                              ) : (
+                                <ChevronDownIcon className="w-5 h-5" />
+                              )}
+                            </button>
+                          </div>
                         </div>
-                        
-                        {/* Botón para desplegar/plegar */}
-                        <button
-                          onClick={() => setShowEmployeesWithoutAttendance(!showEmployeesWithoutAttendance)}
-                          className="ml-4 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                          aria-label={showEmployeesWithoutAttendance ? "Ocultar lista" : "Mostrar lista"}
-                        >
-                          {showEmployeesWithoutAttendance ? (
-                            <ChevronUpIcon className="w-5 h-5" />
-                          ) : (
-                            <ChevronDownIcon className="w-5 h-5" />
-                          )}
-                        </button>
                       </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* Contenido (se muestra/oculta según el estado) */}
-                {showEmployeesWithoutAttendance && (
-                  <div className="p-4">
-                    {attendanceCheckLoading ? (
-                      <div className="text-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
-                        <p className="mt-2 text-gray-600">Cargando datos...</p>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Filtrar empleados que no asistieron hoy */}
-                        {(() => {
-                          const empleadosSinAsistencia = attendanceCheckData.filter(employee => !employee.attendedToday);
-                          
-                          if (empleadosSinAsistencia.length === 0) {
-                            return (
-                              <div className="text-center py-8">
-                                <CheckCircleIcon className="w-12 h-12 text-green-400 mx-auto mb-3" />
-                                <p className="text-gray-600">¡Todos los empleados asistieron hoy!</p>
-                                <p className="text-sm text-gray-500 mt-1">
-                                  No hay empleados sin registro de asistencia
-                                </p>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <>
-                              <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                  <thead className="bg-gray-50">
-                                    <tr>
-                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Número
-                                      </th>
-                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Nombre
-                                      </th>
-                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Área
-                                      </th>
-                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Puesto
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="bg-white divide-y divide-gray-200">
-                                    {empleadosSinAsistencia.map((employee) => (
-                                      <tr key={employee.id} className="hover:bg-red-50 transition-colors duration-150">
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                          <div className="text-sm font-medium text-gray-900">
-                                            {employee.id}
-                                          </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                          <div className="text-sm font-medium text-gray-900">{employee.name}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                          <div className="text-sm text-gray-900">{employee.area}</div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                          <div className="text-sm text-gray-900">{employee.departamento}</div>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
+                    {/* Contenido (se muestra/oculta según el estado) */}
+                    {showEmployeesWithoutAttendance && (
+                      <div className="p-4">
+                        {attendanceCheckLoading ? (
+                          <div className="text-center py-8">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
+                            <p className="mt-2 text-gray-600">Cargando datos...</p>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Filtrar empleados que no asistieron hoy */}
+                            {(() => {
+                              const empleadosSinAsistencia = attendanceCheckData.filter(employee => !employee.attendedToday);
                               
-                              {/* Resumen (opcional) */}
-                              <div className="px-6 py-4 border-t border-gray-200 bg-red-50">
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-700">
-                                  <div className="mb-2 sm:mb-0">
-                                    <span className="font-medium">{empleadosSinAsistencia.length}</span> empleados sin asistencia hoy
+                              if (empleadosSinAsistencia.length === 0) {
+                                return (
+                                  <div className="text-center py-8">
+                                    <CheckCircleIcon className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                                    <p className="text-gray-600">¡Todos los empleados asistieron hoy!</p>
+                                    <p className="text-sm text-gray-500 mt-1">
+                                      No hay empleados sin registro de asistencia
+                                    </p>
                                   </div>
-                                  <div className="text-xs text-gray-500">
-                                    Última actualización: {getCurrentJaliscoTime()}
+                                );
+                              }
+
+                              return (
+                                <>
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                      <thead className="bg-gray-50">
+                                        <tr>
+                                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Número
+                                          </th>
+                                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Nombre
+                                          </th>
+                                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Área
+                                          </th>
+                                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Puesto
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="bg-white divide-y divide-gray-200">
+                                        {empleadosSinAsistencia.map((employee) => (
+                                          <tr key={employee.id} className="hover:bg-red-50 transition-colors duration-150">
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                              <div className="text-sm font-medium text-gray-900">
+                                                {employee.id}
+                                              </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                              <div className="text-sm font-medium text-gray-900">{employee.name}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                              <div className="text-sm text-gray-900">{employee.area}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                              <div className="text-sm text-gray-900">{employee.departamento}</div>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
                                   </div>
-                                </div>
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </>
+                                  
+                                  {/* Resumen (opcional) */}
+                                  <div className="px-6 py-4 border-t border-gray-200 bg-red-50">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-700">
+                                      <div className="mb-2 sm:mb-0">
+                                        <span className="font-medium">{empleadosSinAsistencia.length}</span> empleados sin asistencia hoy
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Última actualización: {getCurrentJaliscoTime()}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-
+            )}
           </div>
         </div>
 
-        {/* ============ SECCIÓN: TABLA SEMANAL CON FILTRO POR SEMANAS ============ */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-                <CalendarDaysIcon className="w-6 h-6 mr-2 text-indigo-600" />
-                Reporte Semanal de Asistencias
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                Semana {selectedWeek}: {weekRange.start} al {weekRange.end}
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              {/* SELECTOR DE SEMANAS */}
-              <div className="flex items-center space-x-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Seleccionar semana:
-                </label>
-                <select
-                  value={selectedWeek}
-                  onChange={(e) => handleWeekChange(parseInt(e.target.value))}
-                  disabled={weeklyLoading}
-                  className="px-3 py-2 border text-gray-800 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                >
-                  {availableWeeks.map((week) => (
-                    <option key={week.numero} value={week.numero}>
-                      Semana {week.numero} ({week.inicio} al {week.fin}) • Jue-Mié
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="flex gap-3" ref={exportWeeklyMenuRef}>
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      const menu = document.getElementById('export-weekly-menu');
-                      if (menu) {
-                        menu.classList.toggle('hidden');
-                      }
-                    }}
-                    disabled={weeklyData.length === 0}
-                    className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200 disabled:opacity-50"
-                  >
-                    <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-                    Exportar
-                    <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
+        {/* ============ CARD: REPORTE SEMANAL ============ */}
+        <div className="mb-6">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300">
+            {/* Encabezado de la card */}
+            <div 
+              className={`p-6 border-b border-gray-200 cursor-pointer transition-colors duration-200 ${
+                openTables.weekly ? 'bg-gradient-to-r from-indigo-50 to-indigo-100' : 'hover:bg-gray-50'
+              }`}
+              onClick={() => toggleTable('weekly')}
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center">
+                  <CalendarDaysIcon className={`w-6 h-6 mr-3 ${openTables.weekly ? 'text-indigo-600' : 'text-gray-600'}`} />
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800">
+                      Reporte Semanal de Asistencias
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Semana {selectedWeek}: {weekRange.start} al {weekRange.end}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {/* Estadísticas resumidas */}
+                  <div className="text-sm text-gray-500">
+                    <span className="text-green-600 font-medium">{weekStats.porcentajeAsistencia}%</span> asistencia
+                  </div>
                   
-                  {/* Menú desplegable de exportación semanal - CORREGIDO */}
-                  <div id="export-weekly-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                    <div className="py-1" role="menu">
+                  {/* Botón de despliegue */}
+                  {openTables.weekly ? (
+                    <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                  ) : (
+                    <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Contenido de la card */}
+            {openTables.weekly && (
+              <div className="p-6">
+                {/* Selector de semanas y botones de exportación */}
+                <div className="flex justify-between items-center mb-6">
+                  <div className="flex items-center space-x-4">
+                    {/* SELECTOR DE SEMANAS */}
+                    <div className="flex items-center space-x-2">
+                      <label className="text-sm font-medium text-gray-700">
+                        Seleccionar semana:
+                      </label>
+                      <select
+                        value={selectedWeek}
+                        onChange={(e) => handleWeekChange(parseInt(e.target.value))}
+                        disabled={weeklyLoading}
+                        className="px-3 py-2 border text-gray-800 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                      >
+                        {availableWeeks.map((week) => (
+                          <option key={week.numero} value={week.numero}>
+                            Semana {week.numero} ({week.inicio} al {week.fin}) • Jue-Mié
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-3" ref={exportWeeklyMenuRef}>
+                    <div className="relative">
                       <button
                         onClick={() => {
-                          exportWeeklyToExcel();
                           const menu = document.getElementById('export-weekly-menu');
-                          if (menu) menu.classList.add('hidden');
+                          if (menu) {
+                            menu.classList.toggle('hidden');
+                          }
                         }}
-                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        role="menuitem"
+                        disabled={weeklyData.length === 0}
+                        className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200 disabled:opacity-50"
                       >
-                        <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+                        Exportar
+                        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
-                        Exportar Excel (con observaciones)
                       </button>
-                      <button
-                        onClick={() => {
-                          exportWeeklyToPDF();
-                          const menu = document.getElementById('export-weekly-menu');
-                          if (menu) menu.classList.add('hidden');
-                        }}
-                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        role="menuitem"
-                      >
-                        <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Exportar PDF
-                      </button>
+                      
+                      {/* Menú desplegable de exportación semanal */}
+                      <div id="export-weekly-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                        <div className="py-1" role="menu">
+                          <button
+                            onClick={() => {
+                              exportWeeklyToExcel();
+                              const menu = document.getElementById('export-weekly-menu');
+                              if (menu) menu.classList.add('hidden');
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            role="menuitem"
+                          >
+                            <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Exportar Excel (con observaciones)
+                          </button>
+                          <button
+                            onClick={() => {
+                              exportWeeklyToPDF();
+                              const menu = document.getElementById('export-weekly-menu');
+                              if (menu) menu.classList.add('hidden');
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            role="menuitem"
+                          >
+                            <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Exportar PDF
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => {
+                        const weekRange = getWeekRangeByNumber(selectedWeek);
+                        fetchWeeklyData(weekRange.start, weekRange.end);
+                      }}
+                      disabled={weeklyLoading}
+                      className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
+                    >
+                      <ArrowPathIcon className={`w-4 h-4 mr-2 ${weeklyLoading ? 'animate-spin' : ''}`} />
+                      Actualizar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Estadísticas de la semana */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-blue-100 p-3 rounded-lg">
+                        <UsersIcon className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Total Empleados</p>
+                        <p className="text-2xl font-bold text-gray-900">{weekStats.totalEmpleados}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-green-100 p-3 rounded-lg">
+                        <CheckCircleIcon className="w-6 h-6 text-green-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Días Presentes</p>
+                        <p className="text-2xl font-bold text-gray-900">{weekStats.totalPresentes}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-red-100 p-3 rounded-lg">
+                        <XCircleIcon className="w-6 h-6 text-red-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Faltas Reales</p>
+                        <p className="text-2xl font-bold text-gray-900">{weekStats.totalFaltas}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white rounded-xl shadow p-6">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 bg-indigo-100 p-3 rounded-lg">
+                        <ChartBarIcon className="w-6 h-6 text-indigo-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">% Asistencia</p>
+                        <p className="text-2xl font-bold text-gray-900">{weekStats.porcentajeAsistencia}%</p>
+                      </div>
                     </div>
                   </div>
                 </div>
-                
-                <button
-                  onClick={() => {
-                    const weekRange = getWeekRangeByNumber(selectedWeek);
-                    fetchWeeklyData(weekRange.start, weekRange.end);
-                  }}
-                  disabled={weeklyLoading}
-                  className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
-                >
-                  <ArrowPathIcon className={`w-4 h-4 mr-2 ${weeklyLoading ? 'animate-spin' : ''}`} />
-                  Actualizar
-                </button>
-              </div>
-            </div>
-          </div>
 
-          {/* Estadísticas de la semana */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-blue-100 p-3 rounded-lg">
-                  <UsersIcon className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Empleados</p>
-                  <p className="text-2xl font-bold text-gray-900">{weekStats.totalEmpleados}</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-xl shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-green-100 p-3 rounded-lg">
-                  <CheckCircleIcon className="w-6 h-6 text-green-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Días Presentes</p>
-                  <p className="text-2xl font-bold text-gray-900">{weekStats.totalPresentes}</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-xl shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-red-100 p-3 rounded-lg">
-                  <XCircleIcon className="w-6 h-6 text-red-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Faltas Reales</p>
-                  <p className="text-2xl font-bold text-gray-900">{weekStats.totalFaltas}</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-xl shadow p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-indigo-100 p-3 rounded-lg">
-                  <ChartBarIcon className="w-6 h-6 text-indigo-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">% Asistencia</p>
-                  <p className="text-2xl font-bold text-gray-900">{weekStats.porcentajeAsistencia}%</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Tabla Semanal */}
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800">
-                    Asistencias por Semana
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Semana {selectedWeek}: {weekRange.start} al {weekRange.end}
-                  </p>
-                </div>
-                <div className="text-sm text-gray-500">
-                  <CircleStackIcon className="w-4 h-4 inline mr-1" />
-                  Total empleados: {weeklyData.length}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4">
-              {weeklyLoading ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="mt-2 text-gray-600">Cargando datos semanales...</p>
-                </div>
-              ) : weeklyData.length === 0 ? (
-                <div className="text-center py-8">
-                  <CalendarDaysIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No hay datos para esta semana</p>
-                </div>
-              ) : (
-                <>
+                {/* Tabla Semanal */}
+                <div className="bg-gray-50 rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -4404,79 +4078,87 @@ const exportAttendanceToPDF = async () => {
                           </th>
                         </tr>
                       </thead>
-                      {/* En el tbody de la tabla semanal, actualizar todas las llamadas a renderDayCell */}
                       <tbody className="bg-white divide-y divide-gray-200">
                         {paginatedWeeklyData.map((row, index) => {
-                          // Función para renderizar cada celda de día (dejarla dentro del map)
-                          const renderDayCell = (dayName) => {
-                            const valor = row[dayName]; // 'X' o ''
-                            const esFuturo = row.esFuturo?.[dayName];
-                            const esInactivo = row.esInactivo?.[dayName];
-                            const esFinDeSemana = row.esFinDeSemana?.[dayName]; // Nuevo
-                            
-                            // Día futuro
-                            if (esFuturo) {
-                              return (
-                                <div className="flex justify-center">
-                                  <div 
-                                    className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
-                                    title="Día futuro (no cuenta como falta)"
-                                  >
-                                    <ClockIcon className="w-4 h-4 text-gray-400" />
-                                  </div>
-                                </div>
-                              );
-                            }
-                            
-                            // Día inactivo (5 de enero de 2026)
-                            if (esInactivo) {
-                              return (
-                                <div className="flex justify-center">
-                                  <div 
-                                    className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
-                                    title="Sistema no activo (no cuenta como falta)"
-                                  >
-                                    <span className="text-xs text-gray-500">-</span>
-                                  </div>
-                                </div>
-                              );
-                            }
-                            
-                            // Fin de semana (sábado o domingo)
-                            if (esFinDeSemana) {
-                              return (
-                                <div className="flex justify-center">
-                                  <div 
-                                    className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center"
-                                    title="Fin de semana (no laboral)"
-                                  >
-                                    <span className="text-xs text-blue-500">FS</span>
-                                  </div>
-                                </div>
-                              );
-                            }
-                            
-                            // Día laboral - mostrar asistencia real
-                            return (
-                              <div className="flex justify-center">
-                                {valor === 'X' ? (
-                                  <div 
-                                    className="w-6 h-6 rounded-full bg-green-100 border border-green-300 flex items-center justify-center"
-                                    title="Asistió"
-                                  >
-                                    <CheckIcon className="w-4 h-4 text-green-600" />
-                                  </div>
-                                ) : (
-                                  <div 
-                                    className="w-6 h-6 rounded-full bg-red-100 border border-red-300 flex items-center justify-center"
-                                    title="Ausente (falta)"
-                                  >
-                                    <XMarkIcon className="w-4 h-4 text-red-600" />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          };
+                          // En el renderDayCell dentro del map de paginatedWeeklyData
+const renderDayCell = (dayName) => {
+  const valor = row[dayName]; // 'X', 'R' o ''
+  const esFuturo = row.esFuturo?.[dayName];
+  const esInactivo = row.esInactivo?.[dayName];
+  const esFinDeSemana = row.esFinDeSemana?.[dayName];
+  
+  // Día futuro
+  if (esFuturo) {
+    return (
+      <div className="flex justify-center">
+        <div 
+          className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
+          title="Día futuro (no cuenta como falta)"
+        >
+          <ClockIcon className="w-4 h-4 text-gray-400" />
+        </div>
+      </div>
+    );
+  }
+  
+  // Día inactivo (5 de enero de 2026)
+  if (esInactivo) {
+    return (
+      <div className="flex justify-center">
+        <div 
+          className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
+          title="Sistema no activo (no cuenta como falta)"
+        >
+          <span className="text-xs text-gray-500">-</span>
+        </div>
+      </div>
+    );
+  }
+  
+  // Fin de semana (sábado o domingo)
+  if (esFinDeSemana) {
+    return (
+      <div className="flex justify-center">
+        <div 
+          className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center"
+          title="Fin de semana (no laboral)"
+        >
+          <span className="text-xs text-blue-500">FS</span>
+        </div>
+      </div>
+    );
+  }
+  
+  // Día laboral - mostrar asistencia real
+  if (valor === 'X') {
+    return (
+      <div 
+        className="w-6 h-6 rounded-full bg-green-100 border border-green-300 flex items-center justify-center"
+        title="Asistió (antes de 9:00 AM)"
+      >
+        <CheckIcon className="w-4 h-4 text-green-600" />
+      </div>
+    );
+  } else if (valor === 'R') {
+    return (
+      <div 
+        className="w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 flex items-center justify-center"
+        title="Retardo (después de 9:00 AM)"
+      >
+        <span className="text-xs text-yellow-700 font-bold">R</span>
+      </div>
+    );
+  } else {
+    return (
+      <div 
+        className="w-6 h-6 rounded-full bg-red-100 border border-red-300 flex items-center justify-center"
+        title="Ausente (falta)"
+      >
+        <XMarkIcon className="w-4 h-4 text-red-600" />
+      </div>
+    );
+  }
+};
                           
                           return (
                             <tr key={index} className="hover:bg-gray-50">
@@ -4541,297 +4223,308 @@ const exportAttendanceToPDF = async () => {
                     onPageChange={(page) => setCurrentWeeklyPage(page)}
                     dataLength={weeklyData.length}
                   />
-                </>
-              )}
-            </div>
-            
-            {/* Resumen y leyenda */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-green-100 border border-green-300 flex items-center justify-center">
-                      <CheckIcon className="w-3 h-3 text-green-600" />
+                </div>
+                
+                {/* Resumen y leyenda */}
+                <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div className="flex items-center gap-1">
+                        <div className="w-4 h-4 rounded-full bg-green-100 border border-green-300 flex items-center justify-center">
+                          <CheckIcon className="w-3 h-3 text-green-600" />
+                        </div>
+                        <span className="text-xs">Asistió</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-4 h-4 rounded-full bg-red-100 border border-red-300 flex items-center justify-center">
+                          <XMarkIcon className="w-3 h-3 text-red-600" />
+                        </div>
+                        <span className="text-xs">Ausente</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
+                          <ClockIcon className="w-3 h-3 text-gray-400" />
+                        </div>
+                        <span className="text-xs">Futuro</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
+                          <span className="text-xs text-gray-500">-</span>
+                        </div>
+                        <span className="text-xs">Inactivo</span>
+                      </div>
                     </div>
-                    <span className="text-xs">Asistió</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-red-100 border border-red-300 flex items-center justify-center">
-                      <XMarkIcon className="w-3 h-3 text-red-600" />
-                    </div>
-                    <span className="text-xs">Ausente</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
-                      <ClockIcon className="w-3 h-3 text-gray-400" />
-                    </div>
-                    <span className="text-xs">Futuro</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center">
-                      <span className="text-xs text-gray-500">-</span>
-                    </div>
-                    <span className="text-xs">Inactivo</span>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
-        {/* ============ SECCIÓN: GESTIÓN DE EMPLEADOS ============ */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-              <UserGroupIcon className="w-6 h-6 mr-2 text-blue-600" />
-              Gestión de Empleados
-            </h2>
-            <div className="flex gap-3" ref={exportEmployeesMenuRef}>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    const menu = document.getElementById('export-employees-menu');
-                    if (menu) {
-                      menu.classList.toggle('hidden');
-                    }
-                  }}
-                  disabled={employees.length === 0}
-                  className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
-                >
-                  <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-                  Exportar Empleados
-                  <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                {/* Menú desplegable de exportación para empleados - CORREGIDO */}
-                <div id="export-employees-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                  <div className="py-1" role="menu">
-                    <button
-                      onClick={() => {
-                        exportEmployeesToExcel();
-                        const menu = document.getElementById('export-employees-menu');
-                        if (menu) menu.classList.add('hidden');
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      role="menuitem"
-                    >
-                      <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      Exportar Excel
-                    </button>
-                    <button
-                      onClick={() => {
-                        exportEmployeesToPDF();
-                        const menu = document.getElementById('export-employees-menu');
-                        if (menu) menu.classList.add('hidden');
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      role="menuitem"
-                    >
-                      <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      Exportar PDF
-                    </button>
+        {/* ============ CARD: GESTIÓN DE EMPLEADOS ============ */}
+        <div className="mb-6">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300">
+            {/* Encabezado de la card */}
+            <div 
+              className={`p-6 border-b border-gray-200 cursor-pointer transition-colors duration-200 ${
+                openTables.employees ? 'bg-gradient-to-r from-blue-50 to-blue-100' : 'hover:bg-gray-50'
+              }`}
+              onClick={() => toggleTable('employees')}
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center">
+                  <UserGroupIcon className={`w-6 h-6 mr-3 ${openTables.employees ? 'text-blue-600' : 'text-gray-600'}`} />
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800">
+                      Gestión de Empleados
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {employees.length} empleados registrados
+                    </p>
                   </div>
                 </div>
-              </div>
-              
-              <button
-                onClick={() => setShowEmployeeForm(true)}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-              >
-                <UserPlusIcon className="w-4 h-4 mr-2" />
-                Nuevo Empleado
-              </button>
-            </div>
-          </div>
-
-          {/* Formulario de Empleado (Modal) */}
-          {showEmployeeForm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-                <div className="p-6">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold text-gray-800">
-                      {employeeForm.isEditing ? 'Editar Empleado' : 'Nuevo Empleado'}
-                    </h3>
-                    <button
-                      onClick={resetEmployeeForm}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      <XMarkIcon className="w-6 h-6" />
-                    </button>
+                <div className="flex items-center space-x-3">
+                  {/* Contador de empleados */}
+                  <div className="text-sm text-gray-500">
+                    <span className="font-medium">{employees.filter(e => e.activo).length}</span> activos
                   </div>
+                  
+                  {/* Botón de despliegue */}
+                  {openTables.employees ? (
+                    <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                  ) : (
+                    <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                  )}
+                </div>
+              </div>
+            </div>
 
-                  <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Número de Empleado *
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          name="numero_empleado"
-                          value={employeeForm.numero_empleado}
-                          onChange={handleEmployeeFormChange}
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
-                          }`}
-                          placeholder={employeeForm.isEditing ? 
-                            "Número actual: " + employeeForm.originalId : 
-                            "Ingresa el número (ej: 1, 2, 3...)"}
-                          disabled={false}
-                        />
-                        {!employeeForm.isEditing && (
-                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            {/* Contenido de la card */}
+            {openTables.employees && (
+              <div className="p-6">
+                {/* Botones de exportación y nuevo empleado */}
+                <div className="flex justify-between items-center mb-6">
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium">{employees.length}</span> empleados totales
+                    <span className="mx-2">•</span>
+                    <span className="text-green-600 font-medium">
+                      {employees.filter(e => e.activo).length}
+                    </span> activos
+                  </div>
+                  <div className="flex gap-3" ref={exportEmployeesMenuRef}>
+                    <div className="relative">
+                      <button
+                        onClick={() => {
+                          const menu = document.getElementById('export-employees-menu');
+                          if (menu) {
+                            menu.classList.toggle('hidden');
+                          }
+                        }}
+                        disabled={employees.length === 0}
+                        className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50"
+                      >
+                        <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
+                        Exportar Empleados
+                        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      
+                      {/* Menú desplegable de exportación para empleados */}
+                      <div id="export-employees-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                        <div className="py-1" role="menu">
+                          <button
+                            onClick={() => {
+                              exportEmployeesToExcel();
+                              const menu = document.getElementById('export-employees-menu');
+                              if (menu) menu.classList.add('hidden');
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            role="menuitem"
+                          >
+                            <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
-                          </div>
-                        )}
+                            Exportar Excel
+                          </button>
+                          <button
+                            onClick={() => {
+                              exportEmployeesToPDF();
+                              const menu = document.getElementById('export-employees-menu');
+                              if (menu) menu.classList.add('hidden');
+                            }}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            role="menuitem"
+                          >
+                            <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Exportar PDF
+                          </button>
+                        </div>
                       </div>
-                      {formErrors.numero_empleado && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
-                      )}
-                      <p className="mt-1 text-xs text-gray-500">
-                        {employeeForm.isEditing ? 
-                          "Puedes cambiar el número si es necesario" : 
-                          "Ingresa manualmente el número del empleado"}
-                      </p>
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nombre Completo *
-                      </label>
-                      <input
-                        type="text"
-                        name="nombre_completo"
-                        value={employeeForm.nombre_completo}
-                        onChange={handleEmployeeFormChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.nombre_completo ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="Ej: Juan Pérez"
-                      />
-                      {formErrors.nombre_completo && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.nombre_completo}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Área/Puesto *
-                      </label>
-                      <input
-                        type="text"
-                        name="area"
-                        value={employeeForm.area}
-                        onChange={handleEmployeeFormChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.area ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="Ej: Ventas, IT, RRHH"
-                      />
-                      {formErrors.area && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.area}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Puesto *
-                      </label>
-                      <input
-                        type="text"
-                        name="departamento"
-                        value={employeeForm.departamento}
-                        onChange={handleEmployeeFormChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.departamento ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="Ej: Ventas, Producción, Administración"
-                      />
-                      {formErrors.departamento && (
-                        <p className="mt-1 text-sm text-red-600">{formErrors.departamento}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Estado
-                      </label>
-                      <select
-                        name="activo"
-                        value={employeeForm.activo}
-                        onChange={handleEmployeeFormChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        <option value="Sí">Activo</option>
-                        <option value="No">Inactivo</option>
-                      </select>
-                    </div>
-
-                    <div className="flex gap-3 pt-4">
-                      <button
-                        type="submit"
-                        className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-                      >
-                        <CheckIcon className="w-4 h-4 mr-2" />
-                        {employeeForm.isEditing ? 'Actualizar' : 'Guardar'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={resetEmployeeForm}
-                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </form>
+                    
+                    <button
+                      onClick={() => setShowEmployeeForm(true)}
+                      className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                    >
+                      <UserPlusIcon className="w-4 h-4 mr-2" />
+                      Nuevo Empleado
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* Tabla de Empleados */}
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800">
-                    Lista de Empleados
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {employees.length} empleados registrados
-                  </p>
-                </div>
-              </div>
-            </div>
+                {/* Formulario de Empleado (Modal) */}
+                {showEmployeeForm && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                      <div className="p-6">
+                        <div className="flex justify-between items-center mb-6">
+                          <h3 className="text-xl font-bold text-gray-800">
+                            {employeeForm.isEditing ? 'Editar Empleado' : 'Nuevo Empleado'}
+                          </h3>
+                          <button
+                            onClick={resetEmployeeForm}
+                            className="text-gray-400 hover:text-gray-600"
+                          >
+                            <XMarkIcon className="w-6 h-6" />
+                          </button>
+                        </div>
 
-            <div className="p-4">
-              {employeesLoading ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="mt-2 text-gray-600">Cargando empleados...</p>
-                </div>
-              ) : employees.length === 0 ? (
-                <div className="text-center py-8">
-                  <UserGroupIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No hay empleados registrados</p>
-                  <button
-                    onClick={() => setShowEmployeeForm(true)}
-                    className="mt-3 px-4 py-2 text-blue-600 hover:text-blue-800"
-                  >
-                    Agregar primer empleado
-                  </button>
-                </div>
-              ) : (
-                <>
+                        <form onSubmit={handleAddEmployee} className="space-y-4 text-gray-700">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Número de Empleado *
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                name="numero_empleado"
+                                value={employeeForm.numero_empleado}
+                                onChange={handleEmployeeFormChange}
+                                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                                  formErrors.numero_empleado ? 'border-red-500' : 'border-gray-300'
+                                }`}
+                                placeholder={employeeForm.isEditing ? 
+                                  "Número actual: " + employeeForm.originalId : 
+                                  "Ingresa el número (ej: 1, 2, 3...)"}
+                                disabled={false}
+                              />
+                              {!employeeForm.isEditing && (
+                                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                  </svg>
+                                </div>
+                              )}
+                            </div>
+                            {formErrors.numero_empleado && (
+                              <p className="mt-1 text-sm text-red-600">{formErrors.numero_empleado}</p>
+                            )}
+                            <p className="mt-1 text-xs text-gray-500">
+                              {employeeForm.isEditing ? 
+                                "Puedes cambiar el número si es necesario" : 
+                                "Ingresa manualmente el número del empleado"}
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Nombre Completo *
+                            </label>
+                            <input
+                              type="text"
+                              name="nombre_completo"
+                              value={employeeForm.nombre_completo}
+                              onChange={handleEmployeeFormChange}
+                              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                                formErrors.nombre_completo ? 'border-red-500' : 'border-gray-300'
+                              }`}
+                              placeholder="Ej: Juan Pérez"
+                            />
+                            {formErrors.nombre_completo && (
+                              <p className="mt-1 text-sm text-red-600">{formErrors.nombre_completo}</p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Área/Puesto *
+                            </label>
+                            <input
+                              type="text"
+                              name="area"
+                              value={employeeForm.area}
+                              onChange={handleEmployeeFormChange}
+                              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                                formErrors.area ? 'border-red-500' : 'border-gray-300'
+                              }`}
+                              placeholder="Ej: Ventas, IT, RRHH"
+                            />
+                            {formErrors.area && (
+                              <p className="mt-1 text-sm text-red-600">{formErrors.area}</p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Puesto *
+                            </label>
+                            <input
+                              type="text"
+                              name="departamento"
+                              value={employeeForm.departamento}
+                              onChange={handleEmployeeFormChange}
+                              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                                formErrors.departamento ? 'border-red-500' : 'border-gray-300'
+                              }`}
+                              placeholder="Ej: Ventas, Producción, Administración"
+                            />
+                            {formErrors.departamento && (
+                              <p className="mt-1 text-sm text-red-600">{formErrors.departamento}</p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Estado
+                            </label>
+                            <select
+                              name="activo"
+                              value={employeeForm.activo}
+                              onChange={handleEmployeeFormChange}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            >
+                              <option value="Sí">Activo</option>
+                              <option value="No">Inactivo</option>
+                            </select>
+                          </div>
+
+                          <div className="flex gap-3 pt-4">
+                            <button
+                              type="submit"
+                              className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                            >
+                              <CheckIcon className="w-4 h-4 mr-2" />
+                              {employeeForm.isEditing ? 'Actualizar' : 'Guardar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={resetEmployeeForm}
+                              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tabla de Empleados */}
+                <div className="bg-gray-50 rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
@@ -4913,257 +4606,276 @@ const exportAttendanceToPDF = async () => {
                     onPageChange={(page) => setCurrentEmployeesPage(page)}
                     dataLength={employees.length}
                   />
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ============ SECCIÓN: REGISTROS DE ASISTENCIA ============ */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800">Registros de Asistencia</h2>
-            <div className="text-sm text-gray-600">
-              Filtros y exportación
-            </div>
-          </div>
-
-          {/* Filtros y Acciones */}
-          <div className="mb-8">
-            <form onSubmit={applyFilters} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="relative">
-                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por número, nombre, área o departamento..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="input-field pl-10"
-                    disabled={loading}
-                  />
-                </div>
-                
-                {/* Selector de fechas */}
-                <div className="relative">
-                  <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <select
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="input-field pl-10"
-                    disabled={loading || loadingDates}
-                  >
-                    <option value="">Todas las fechas</option>
-                    {availableDates.map((fecha) => (
-                      <option key={fecha.valor} value={fecha.valor}>
-                        {fecha.texto} ({fecha.registros} registros)
-                      </option>
-                    ))}
-                    {availableDates.length === 0 && !loadingDates && (
-                      <option value="" disabled>No hay fechas disponibles</option>
-                    )}
-                    {loadingDates && (
-                      <option value="" disabled>Cargando fechas...</option>
-                    )}
-                  </select>
-                </div>
-                
-                <div>
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    disabled={loading || refreshing}
-                    className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors duration-200 font-medium disabled:opacity-50"
-                  >
-                    Limpiar Filtros
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex gap-3" ref={exportAttendanceMenuRef}>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const menu = document.getElementById('export-attendance-menu');
-                      if (menu) {
-                        menu.classList.toggle('hidden');
-                      }
-                    }}
-                    disabled={loading || filteredData.length === 0}
-                    className="flex items-center px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50"
-                  >
-                    <ArrowDownTrayIcon className="w-5 h-5 mr-2" />
-                    Exportar
-                    <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                  
-                  {/* Menú desplegable de exportación para registros - CORREGIDO */}
-                  <div id="export-attendance-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                    <div className="py-1" role="menu">
-                      <button
-                        onClick={() => {
-                          exportAllToExcel();
-                          const menu = document.getElementById('export-attendance-menu');
-                          if (menu) menu.classList.add('hidden');
-                        }}
-                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        role="menuitem"
-                      >
-                        <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Exportar Excel
-                      </button>
-                      <button
-                        onClick={() => {
-                          exportAttendanceToPDF();
-                          const menu = document.getElementById('export-attendance-menu');
-                          if (menu) menu.classList.add('hidden');
-                        }}
-                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        role="menuitem"
-                      >
-                        <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Exportar PDF
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </form>
-            
-            {/* Información adicional sobre el filtro */}
-            {dateFilter && (
-              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-medium text-blue-800">
-                      Filtro activo: <span className="font-bold">{dateFilter}</span>
-                    </span>
-                    {availableDates.find(f => f.valor === dateFilter) && (
-                      <span className="ml-3 text-sm text-blue-600">
-                        ({availableDates.find(f => f.valor === dateFilter).registros} registros)
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      fetchAvailableDates();
-                      fetchDataFromDB();
-                    }}
-                    className="flex items-center text-sm text-blue-600 hover:text-blue-800"
-                    disabled={loadingDates}
-                  >
-                    <ArrowPathIcon className={`w-4 h-4 mr-1 ${loadingDates ? 'animate-spin' : ''}`} />
-                    {loadingDates ? 'Actualizando...' : 'Actualizar'}
-                  </button>
                 </div>
               </div>
             )}
           </div>
+        </div>
 
-          {/* Tabla de Asistencias */}
-          <div className="glass-card rounded-xl overflow-hidden shadow-lg">
-            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-800">
-                    Historial de Asistencias
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Datos en tiempo real
-                    <span className="ml-2 text-gray-500">
-                      • {filteredData.length} registros encontrados
-                    </span>
-                  </p>
+        {/* ============ CARD: REGISTROS DE ASISTENCIA ============ */}
+        <div className="mb-6">
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300">
+            {/* Encabezado de la card */}
+            <div 
+              className={`p-6 border-b border-gray-200 cursor-pointer transition-colors duration-200 ${
+                openTables.attendance ? 'bg-gradient-to-r from-green-50 to-green-100' : 'hover:bg-gray-50'
+              }`}
+              onClick={() => toggleTable('attendance')}
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center">
+                  <DocumentTextIcon className={`w-6 h-6 mr-3 ${openTables.attendance ? 'text-green-600' : 'text-gray-600'}`} />
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800">
+                      Registros de Asistencia
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Historial completo de registros
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  {/* Contador de registros */}
+                  <div className="text-sm text-gray-500">
+                    <span className="font-medium">{filteredData.length}</span> registros
+                  </div>
+                  
+                  {/* Botón de despliegue */}
+                  {openTables.attendance ? (
+                    <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                  ) : (
+                    <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                  )}
                 </div>
               </div>
             </div>
-            
-            <div className="p-4 sm:p-6">
-              {loading ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <div className="relative">
-                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4"></div>
-                    <CircleStackIcon className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-blue-600" />
-                  </div>
-                  <p className="text-gray-600 mt-4">Conectando con MongoDB...</p>
-                  <p className="text-sm text-gray-500 mt-2">Obteniendo datos en tiempo real</p>
-                </div>
-              ) : dbStatus === 'error' ? (
-                <div className="text-center py-12">
-                  <ExclamationCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    Error de conexión con MongoDB
-                  </h3>
-                  <p className="text-gray-600 mb-4">
-                    No se pudieron cargar los datos desde la base de datos.
-                  </p>
-                  <button
-                    onClick={fetchDataFromDB}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Reintentar conexión
-                  </button>
-                </div>
-              ) : filteredData.length === 0 ? (
-                <div className="text-center py-12">
-                  <DocumentTextIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    No hay registros de asistencia
-                  </h3>
-                  <p className="text-gray-600">
-                    No se encontraron registros con los filtros aplicados.
-                  </p>
-                  <button
-                    onClick={clearFilters}
-                    className="mt-4 px-4 py-2 text-blue-600 hover:text-blue-800"
-                  >
-                    Ver todos los registros
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <AdminTable 
-                    attendanceData={paginatedAttendanceData} 
-                    loading={false} 
-                  />
+
+            {/* Contenido de la card */}
+            {openTables.attendance && (
+              <div className="p-6">
+                {/* Filtros */}
+                <div className="mb-6">
+                  <form onSubmit={applyFilters} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="relative">
+                        <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por número, nombre, área o departamento..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="input-field pl-10"
+                          disabled={loading}
+                        />
+                      </div>
+                      
+                      {/* Selector de fechas */}
+                      <div className="relative">
+                        <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <select
+                          value={dateFilter}
+                          onChange={(e) => setDateFilter(e.target.value)}
+                          className="input-field pl-10"
+                          disabled={loading || loadingDates}
+                        >
+                          <option value="">Todas las fechas</option>
+                          {availableDates.map((fecha) => (
+                            <option key={fecha.valor} value={fecha.valor}>
+                              {fecha.texto} ({fecha.registros} registros)
+                            </option>
+                          ))}
+                          {availableDates.length === 0 && !loadingDates && (
+                            <option value="" disabled>No hay fechas disponibles</option>
+                          )}
+                          {loadingDates && (
+                            <option value="" disabled>Cargando fechas...</option>
+                          )}
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          disabled={loading || refreshing}
+                          className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors duration-200 font-medium disabled:opacity-50"
+                        >
+                          Limpiar Filtros
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-3" ref={exportAttendanceMenuRef}>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const menu = document.getElementById('export-attendance-menu');
+                            if (menu) {
+                              menu.classList.toggle('hidden');
+                            }
+                          }}
+                          disabled={loading || filteredData.length === 0}
+                          className="flex items-center px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 font-medium disabled:opacity-50"
+                        >
+                          <ArrowDownTrayIcon className="w-5 h-5 mr-2" />
+                          Exportar
+                          <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        
+                        {/* Menú desplegable de exportación para registros */}
+                        <div id="export-attendance-menu" className="hidden absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                          <div className="py-1" role="menu">
+                            <button
+                              onClick={() => {
+                                exportAllToExcel();
+                                const menu = document.getElementById('export-attendance-menu');
+                                if (menu) menu.classList.add('hidden');
+                              }}
+                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              role="menuitem"
+                            >
+                              <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Exportar Excel
+                            </button>
+                            <button
+                              onClick={() => {
+                                exportAttendanceToPDF();
+                                const menu = document.getElementById('export-attendance-menu');
+                                if (menu) menu.classList.add('hidden');
+                              }}
+                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              role="menuitem"
+                            >
+                              <svg className="w-4 h-4 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Exportar PDF
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </form>
                   
-                  {/* Controles de paginación para asistencias */}
-                  <PaginationControls
-                    currentPage={currentAttendancePage}
-                    totalPages={totalAttendancePages}
-                    onPageChange={(page) => setCurrentAttendancePage(page)}
-                    dataLength={filteredData.length}
-                  />
-                </>
-              )}
-            </div>
-            
-            {/* Footer de la tabla */}
-            {!loading && filteredData.length > 0 && (
-              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
-                  <div className="mb-2 sm:mb-0">
-                    Mostrando <span className="font-medium">{paginatedAttendanceData.length}</span> de <span className="font-medium">{filteredData.length}</span> registros
-                    {searchTerm && (
-                      <span className="ml-2">
-                        para "<span className="font-medium">{searchTerm}</span>"
-                      </span>
+                  {/* Información adicional sobre el filtro */}
+                  {dateFilter && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm font-medium text-blue-800">
+                            Filtro activo: <span className="font-bold">{dateFilter}</span>
+                          </span>
+                          {availableDates.find(f => f.valor === dateFilter) && (
+                            <span className="ml-3 text-sm text-blue-600">
+                              ({availableDates.find(f => f.valor === dateFilter).registros} registros)
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            fetchAvailableDates();
+                            fetchDataFromDB();
+                          }}
+                          className="flex items-center text-sm text-blue-600 hover:text-blue-800"
+                          disabled={loadingDates}
+                        >
+                          <ArrowPathIcon className={`w-4 h-4 mr-1 ${loadingDates ? 'animate-spin' : ''}`} />
+                          {loadingDates ? 'Actualizando...' : 'Actualizar'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tabla de Asistencias */}
+                <div className="bg-gray-50 rounded-lg overflow-hidden">
+                  <div className="p-4 sm:p-6">
+                    {loading ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <div className="relative">
+                          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-4"></div>
+                          <CircleStackIcon className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-blue-600" />
+                        </div>
+                        <p className="text-gray-600 mt-4">Conectando con MongoDB...</p>
+                        <p className="text-sm text-gray-500 mt-2">Obteniendo datos en tiempo real</p>
+                      </div>
+                    ) : dbStatus === 'error' ? (
+                      <div className="text-center py-12">
+                        <ExclamationCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">
+                          Error de conexión con MongoDB
+                        </h3>
+                        <p className="text-gray-600 mb-4">
+                          No se pudieron cargar los datos desde la base de datos.
+                        </p>
+                        <button
+                          onClick={fetchDataFromDB}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                          Reintentar conexión
+                        </button>
+                      </div>
+                    ) : filteredData.length === 0 ? (
+                      <div className="text-center py-12">
+                        <DocumentTextIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">
+                          No hay registros de asistencia
+                        </h3>
+                        <p className="text-gray-600">
+                          No se encontraron registros con los filtros aplicados.
+                        </p>
+                        <button
+                          onClick={clearFilters}
+                          className="mt-4 px-4 py-2 text-blue-600 hover:text-blue-800"
+                        >
+                          Ver todos los registros
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <AdminTable 
+                          attendanceData={paginatedAttendanceData} 
+                          loading={false} 
+                        />
+                        
+                        {/* Controles de paginación para asistencias */}
+                        <PaginationControls
+                          currentPage={currentAttendancePage}
+                          totalPages={totalAttendancePages}
+                          onPageChange={(page) => setCurrentAttendancePage(page)}
+                          dataLength={filteredData.length}
+                        />
+                      </>
                     )}
                   </div>
-                  <div className="flex items-center">
-                    {lastUpdated && (
-                      <span className="ml-2 text-gray-500">
-                        • Actualizado: {formatDateTime(lastUpdated)}
-                      </span>
-                    )}
-                  </div>
+                  
+                  {/* Footer de la tabla */}
+                  {!loading && filteredData.length > 0 && (
+                    <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-600">
+                        <div className="mb-2 sm:mb-0">
+                          Mostrando <span className="font-medium">{paginatedAttendanceData.length}</span> de <span className="font-medium">{filteredData.length}</span> registros
+                          {searchTerm && (
+                            <span className="ml-2">
+                              para "<span className="font-medium">{searchTerm}</span>"
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center">
+                          {lastUpdated && (
+                            <span className="ml-2 text-gray-500">
+                              • Actualizado: {formatDateTime(lastUpdated)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
