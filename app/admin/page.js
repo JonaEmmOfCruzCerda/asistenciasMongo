@@ -25,7 +25,9 @@ import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
   PaperAirplaneIcon,
-  CalendarDaysIcon
+  CalendarDaysIcon,
+  ChevronDownIcon,
+  ChevronUpIcon
 } from '@heroicons/react/24/outline';
 import * as XLSX from 'xlsx-js-style';
 
@@ -56,6 +58,8 @@ export default function AdminPage() {
   const [employeesLoading, setEmployeesLoading] = useState(false);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
+
+  const [showEmployeesWithoutAttendance, setShowEmployeesWithoutAttendance] = useState(false);
   
   // Formulario de empleado
   const [employeeForm, setEmployeeForm] = useState({
@@ -4047,6 +4051,139 @@ const exportAttendanceToPDF = async () => {
                 </div>
               </div>
             </div>
+
+            {/* Sección: Empleados que no asistieron hoy */}
+            <div className="mt-8">
+              <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                {/* Encabezado con botón de despliegue */}
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                          <ExclamationCircleIcon className="w-5 h-5 mr-2 text-red-600" />
+                          Empleados que no asistieron hoy ({currentDate})
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Listado de empleados activos sin registro de asistencia
+                        </p>
+                      </div>
+                      
+                      {/* Contador y botón de despliegue */}
+                      <div className="flex items-center space-x-4">
+                        <div className="text-sm text-gray-500">
+                          <span className="text-red-600 font-medium">
+                            {attendanceCheckData.filter(e => !e.attendedToday).length}
+                          </span> empleados sin asistencia
+                        </div>
+                        
+                        {/* Botón para desplegar/plegar */}
+                        <button
+                          onClick={() => setShowEmployeesWithoutAttendance(!showEmployeesWithoutAttendance)}
+                          className="ml-4 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                          aria-label={showEmployeesWithoutAttendance ? "Ocultar lista" : "Mostrar lista"}
+                        >
+                          {showEmployeesWithoutAttendance ? (
+                            <ChevronUpIcon className="w-5 h-5" />
+                          ) : (
+                            <ChevronDownIcon className="w-5 h-5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contenido (se muestra/oculta según el estado) */}
+                {showEmployeesWithoutAttendance && (
+                  <div className="p-4">
+                    {attendanceCheckLoading ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
+                        <p className="mt-2 text-gray-600">Cargando datos...</p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Filtrar empleados que no asistieron hoy */}
+                        {(() => {
+                          const empleadosSinAsistencia = attendanceCheckData.filter(employee => !employee.attendedToday);
+                          
+                          if (empleadosSinAsistencia.length === 0) {
+                            return (
+                              <div className="text-center py-8">
+                                <CheckCircleIcon className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                                <p className="text-gray-600">¡Todos los empleados asistieron hoy!</p>
+                                <p className="text-sm text-gray-500 mt-1">
+                                  No hay empleados sin registro de asistencia
+                                </p>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <>
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Número
+                                      </th>
+                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Nombre
+                                      </th>
+                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Área
+                                      </th>
+                                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Puesto
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-200">
+                                    {empleadosSinAsistencia.map((employee) => (
+                                      <tr key={employee.id} className="hover:bg-red-50 transition-colors duration-150">
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                          <div className="text-sm font-medium text-gray-900">
+                                            {employee.id}
+                                          </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                          <div className="text-sm font-medium text-gray-900">{employee.name}</div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                          <div className="text-sm text-gray-900">{employee.area}</div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                          <div className="text-sm text-gray-900">{employee.departamento}</div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              
+                              {/* Resumen (opcional) */}
+                              <div className="px-6 py-4 border-t border-gray-200 bg-red-50">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-sm text-gray-700">
+                                  <div className="mb-2 sm:mb-0">
+                                    <span className="font-medium">{empleadosSinAsistencia.length}</span> empleados sin asistencia hoy
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    Última actualización: {getCurrentJaliscoTime()}
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
 
