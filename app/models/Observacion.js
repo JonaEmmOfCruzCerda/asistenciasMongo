@@ -20,7 +20,7 @@ const observacionSchema = new mongoose.Schema({
   },
   tipoFalta: {
     type: String,
-    enum: ['Vacaciones', 'Falta', 'Incapacidad', ''],
+    enum: ['Vacaciones', 'Falta', 'Incapacidad', 'Prestamo'],
     default: ''
   },
   fecha: {
@@ -47,3 +47,4 @@ observacionSchema.path('text').required(false);
 observacionSchema.index({ employeeId: 1, date: -1 });
 
 export default mongoose.models.Observacion || mongoose.model('Observacion', observacionSchema);
+

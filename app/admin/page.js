@@ -24,7 +24,6 @@ import {
   ChevronRightIcon,
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
-  PaperAirplaneIcon,
   CalendarDaysIcon,
   ChevronDownIcon,
   ChevronUpIcon
@@ -77,10 +76,8 @@ export default function AdminPage() {
   const [attendanceCheckData, setAttendanceCheckData] = useState([]);
   const [attendanceCheckLoading, setAttendanceCheckLoading] = useState(false);
   
-  // ESTADOS PARA OBSERVACIONES
-  const [observaciones, setObservaciones] = useState({});
+  // ESTADOS PARA OBSERVACIONES - SOLO TIPO DE FALTA
   const [tiposFalta, setTiposFalta] = useState({}); 
-  const [observacionInput, setObservacionInput] = useState({});
   const [savingObservacion, setSavingObservacion] = useState({});
   
   // ESTADOS PARA TABLA SEMANAL CON FILTRO POR SEMANAS
@@ -223,58 +220,66 @@ export default function AdminPage() {
     return getWeekRangeByNumber(weekNumber);
   };
 
-  // ============ FUNCIÓN PARA CALCULAR FECHA PARA DÍA ESPECÍFICO DE SEMANA ============
+  // Primero, asegúrate de tener esta función para verificar fechas inactivas:
+const esFechaInactiva = (fechaDDMMYYYY) => {
+  const fechasInactivas = [
+    '05/01/2026', // 5 de enero 2026 - sistema no activo
+    '02/02/2026', // 2 de febrero 2026 - sistema inactivo
+  ];
+  return fechasInactivas.includes(fechaDDMMYYYY);
+};
 
+  // ============ FUNCIÓN PARA CALCULAR FECHA PARA DÍA ESPECÍFICO DE SEMANA ============
   // Función para calcular la fecha específica para un día de la semana
-  const calcularFechaParaDiaSemana = (semanaNumero, diaNombre) => {
-    // Mapeo de nombres de días a índices (0 = jueves, 1 = viernes, 2 = lunes, 3 = martes, 4 = miércoles)
-    const diasMap = {
-      'jueves': 0,
-      'viernes': 1,
-      'lunes': 2,
-      'martes': 3,
-      'miercoles': 4
-    };
-    
-    // Fecha base: 1 de enero de 2026 (jueves)
-    const fechaBase = new Date(2026, 0, 1);
-    
-    // Calcular fecha de inicio de la semana (jueves)
-    const inicioSemana = new Date(fechaBase);
-    inicioSemana.setDate(fechaBase.getDate() + ((semanaNumero - 1) * 7));
-    
-    // Calcular fecha específica para el día solicitado
-    const fechaDia = new Date(inicioSemana);
-    
-    // Ajustar según el día solicitado
-    switch(diaNombre) {
-      case 'jueves':
-        // Ya es jueves, no ajustar
-        break;
-      case 'viernes':
-        fechaDia.setDate(inicioSemana.getDate() + 1);
-        break;
-      case 'lunes':
-        fechaDia.setDate(inicioSemana.getDate() + 4); // Jueves + 4 días = Lunes
-        break;
-      case 'martes':
-        fechaDia.setDate(inicioSemana.getDate() + 5);
-        break;
-      case 'miercoles':
-        fechaDia.setDate(inicioSemana.getDate() + 6);
-        break;
-      default:
-        // Si no es un día válido, devolver la fecha de inicio
-        break;
-    }
-    
-    // Formatear fecha como DD/MM/YYYY
-    const dia = fechaDia.getDate().toString().padStart(2, '0');
-    const mes = (fechaDia.getMonth() + 1).toString().padStart(2, '0');
-    const año = fechaDia.getFullYear();
-    
-    return `${dia}/${mes}/${año}`;
+const calcularFechaParaDiaSemana = (semanaNumero, diaNombre) => {
+  // Mapeo de nombres de días a índices (0 = jueves, 1 = viernes, 2 = lunes, 3 = martes, 4 = miércoles)
+  const diasMap = {
+    'jueves': 0,
+    'viernes': 1,
+    'lunes': 2,
+    'martes': 3,
+    'miercoles': 4
   };
+  
+  // Fecha base: 1 de enero de 2026 (jueves)
+  const fechaBase = new Date(2026, 0, 1);
+  
+  // Calcular fecha de inicio de la semana (jueves)
+  const inicioSemana = new Date(fechaBase);
+  inicioSemana.setDate(fechaBase.getDate() + ((semanaNumero - 1) * 7));
+  
+  // Calcular fecha específica para el día solicitado
+  const fechaDia = new Date(inicioSemana);
+  
+  // Ajustar según el día solicitado
+  switch(diaNombre) {
+    case 'jueves':
+      // Ya es jueves, no ajustar
+      break;
+    case 'viernes':
+      fechaDia.setDate(inicioSemana.getDate() + 1);
+      break;
+    case 'lunes':
+      fechaDia.setDate(inicioSemana.getDate() + 4); // Jueves + 4 días = Lunes
+      break;
+    case 'martes':
+      fechaDia.setDate(inicioSemana.getDate() + 5);
+      break;
+    case 'miercoles':
+      fechaDia.setDate(inicioSemana.getDate() + 6);
+      break;
+    default:
+      // Si no es un día válido, devolver la fecha de inicio
+      break;
+  }
+  
+  // Formatear fecha como DD/MM/YYYY
+  const dia = fechaDia.getDate().toString().padStart(2, '0');
+  const mes = (fechaDia.getMonth() + 1).toString().padStart(2, '0');
+  const año = fechaDia.getFullYear();
+  
+  return `${dia}/${mes}/${año}`;
+};
 
   // Función para cambiar de semana
   const handleWeekChange = (weekNumber) => {
@@ -445,8 +450,8 @@ export default function AdminPage() {
     return `${hora}:${minutos}`;
   };
 
-  // Función: Cargar observaciones con filtro por fecha
-  const fetchObservaciones = async (fechaEspecifica = null) => {
+  // Función: Cargar tipos de falta con filtro por fecha
+  const fetchTiposFalta = async (fechaEspecifica = null) => {
     try {
       const fecha = fechaEspecifica || getCurrentJaliscoDate();
       const response = await fetch(`/api/observaciones?fecha=${fecha}`);
@@ -454,30 +459,28 @@ export default function AdminPage() {
       if (response.ok) {
         const data = await response.json();
         
-        const observacionesObj = {};
         const tiposFaltaObj = {};
         
         data.forEach(obs => {
-          observacionesObj[obs.employeeId] = obs.text || '';
-          tiposFaltaObj[obs.employeeId] = obs.tipoFalta || '';
+          if (obs.tipoFalta && obs.tipoFalta.trim()) {
+            tiposFaltaObj[obs.employeeId] = obs.tipoFalta;
+          }
         });
         
-        setObservaciones(observacionesObj);
         setTiposFalta(tiposFaltaObj);
       }
     } catch (error) {
-      console.error('Error cargando observaciones:', error);
+      console.error('Error cargando tipos de falta:', error);
     }
   };
 
-  // Función: Guardar observación con tipo de falta
-  const saveObservacion = async (employeeId, text, tipoFalta, fechaEspecifica = null) => {
-    // Validar que al menos haya un tipo de falta o una observación
-    const textValue = text?.trim() || '';
+  // Función: Guardar tipo de falta
+  const saveObservacion = async (employeeId, tipoFalta, fechaEspecifica = null) => {
+    // Validar que haya un tipo de falta
     const tipoFaltaValue = tipoFalta || '';
     
-    if (!textValue && !tipoFaltaValue) {
-      alert('Debe seleccionar un tipo de falta o agregar una observación');
+    if (!tipoFaltaValue) {
+      alert('Debe seleccionar un tipo de falta');
       setSavingObservacion(prev => ({ ...prev, [employeeId]: false }));
       return;
     }
@@ -487,16 +490,15 @@ export default function AdminPage() {
     try {
       const fecha = fechaEspecifica || getCurrentJaliscoDate();
       
-      console.log('📤 Guardando observación:', {
+      console.log('📤 Guardando tipo de falta:', {
         employeeId,
-        text: textValue,
         tipoFalta: tipoFaltaValue,
         fecha
       });
       
       const datos = {
         employeeId: employeeId,
-        text: textValue,
+        text: '', // Texto vacío
         tipoFalta: tipoFaltaValue,
         fecha: fecha,
         adminId: 'admin'
@@ -513,66 +515,70 @@ export default function AdminPage() {
       const result = await response.json();
       
       if (response.ok) {
-        console.log('✅ Observación guardada:', result);
+        console.log('✅ Tipo de falta guardado:', result);
         
         // Actualizar estado local
-        setObservaciones(prev => ({
-          ...prev,
-          [employeeId]: textValue
-        }));
-        
         setTiposFalta(prev => ({
           ...prev,
           [employeeId]: tipoFaltaValue
         }));
         
         // Recargar datos
-        await fetchObservaciones(fecha);
-        
-        // Mostrar mensaje de éxito
-        const mensaje = tipoFaltaValue 
-          ? `Tipo de falta "${tipoFaltaValue}" guardado${textValue ? ' con observación' : ''}`
-          : 'Observación guardada exitosamente';
-        
-        alert(mensaje);
+        await fetchTiposFalta(fecha);
       } else {
         console.error('❌ Error del servidor:', result);
-        alert('Error al guardar observación: ' + (result.error || result.details || 'Error desconocido'));
       }
     } catch (error) {
-      console.error('Error guardando observación:', error);
-      alert('Error de conexión al guardar observación');
+      console.error('Error guardando tipo de falta:', error);
     } finally {
       setSavingObservacion(prev => ({ ...prev, [employeeId]: false }));
     }
   };
 
-  // Función para cargar datos semanales
-  // Función para cargar datos semanales - VERSIÓN CORREGIDA
-const fetchWeeklyData = async (startDate, endDate) => {
+// Función para cargar datos semanales - VERSIÓN OPTIMIZADA
+const fetchWeeklyData = async (startDate, endDate, forceRefresh = false) => {
+  // Si ya está cargando, no hacer otra solicitud
+  if (weeklyLoading && !forceRefresh) return;
+  
   setWeeklyLoading(true);
   try {
-    console.log('📅 ========================================');
-    console.log('📅 SOLICITANDO DATOS SEMANALES');
-    console.log('📅 ========================================');
-    console.log('Rango solicitado:', startDate, 'al', endDate);
-    console.log('Fecha actual (Jalisco):', getCurrentJaliscoDate());
-    console.log('Hora actual (Jalisco):', getCurrentJaliscoTime());
-    console.log('Semana seleccionada:', selectedWeek);
+    console.log('📅 SOLICITANDO DATOS SEMANALES OPTIMIZADO');
+    console.log('Rango:', startDate, 'al', endDate);
 
     // Verificar si las fechas son válidas
     if (!startDate || !endDate) {
-      console.error('❌ Fechas no válidas:', { startDate, endDate });
-      throw new Error('Fechas no válidas');
+      console.error('❌ Fechas no válidas');
+      setWeeklyData([]);
+      return;
     }
 
-    // Construir la URL
-    const apiUrl = `/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`;
-    console.log('🌐 URL de solicitud:', apiUrl);
+    // Cache key para evitar cargas duplicadas
+    const cacheKey = `week_${selectedWeek}_${startDate}_${endDate}`;
+    const cachedData = sessionStorage.getItem(cacheKey);
+    
+    // Usar datos cacheados si existen y no forzamos refresh
+    if (cachedData && !forceRefresh) {
+      const { data: cachedWeeklyData, stats: cachedStats, timestamp } = JSON.parse(cachedData);
+      
+      // Verificar si el cache es reciente (menos de 5 minutos)
+      const cacheAge = Date.now() - timestamp;
+      const MAX_CACHE_AGE = 5 * 60 * 1000; // 5 minutos
+      
+      if (cacheAge < MAX_CACHE_AGE) {
+        console.log('📊 Usando datos cacheados para semana', selectedWeek);
+        setWeeklyData(cachedWeeklyData);
+        setWeekStats(cachedStats);
+        setWeeklyLoading(false);
+        return;
+      }
+    }
 
-    // Configurar timeout
+    // Construir la URL con parámetros optimizados
+    const apiUrl = `/api/asistencias-semana?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}&cache=${Date.now()}`;
+    
+    // Configurar timeout más corto pero con reintentos
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos
 
     try {
       const response = await fetch(apiUrl, {
@@ -585,38 +591,19 @@ const fetchWeeklyData = async (startDate, endDate) => {
 
       clearTimeout(timeoutId);
 
-      console.log('📡 Estado de respuesta:', response.status, response.statusText);
-
       if (!response.ok) {
-        // Intentar obtener más detalles del error
-        let errorDetails = '';
-        try {
-          const errorData = await response.json();
-          errorDetails = errorData.error || errorData.details || '';
-        } catch {
-          // Si no se puede parsear como JSON, usar texto
-          errorDetails = await response.text();
-        }
-
-        console.error('❌ Error del servidor:', {
-          status: response.status,
-          statusText: response.statusText,
-          details: errorDetails
-        });
-
-        throw new Error(`Error del servidor: ${response.status} ${response.statusText}`);
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log(`✅ Datos semanales recibidos: ${data.length} empleados`);
-
+      
       if (!Array.isArray(data)) {
-        console.error('❌ Datos recibidos no son un array:', data);
         throw new Error('Formato de datos inválido');
       }
 
+      // Si no hay datos, establecer valores por defecto
       if (data.length === 0) {
-        console.log('⚠️ La API devolvió 0 empleados');
+        console.log('⚠️ No hay datos para esta semana');
         setWeeklyData([]);
         setWeekStats({
           totalEmpleados: 0,
@@ -627,132 +614,113 @@ const fetchWeeklyData = async (startDate, endDate) => {
         return;
       }
 
-      // Procesar los datos recibidos
+      // Procesar los datos de forma más eficiente
       let processedData = data;
-
-      // Si los datos no incluyen departamento, intentar combinarlos con empleados
-      if (data.length > 0 && (!data[0].departamento || data[0].departamento === '')) {
-        console.log('⚠️ Los datos no incluyen departamento, combinando con empleados...');
-        try {
-          const employeesResponse = await fetch('/api/empleados');
-          if (employeesResponse.ok) {
-            const empleados = await employeesResponse.json();
-
-            // Crear mapa de empleados por nombre
-            const employeesMap = {};
-            empleados.forEach(emp => {
-              employeesMap[emp.nombre_completo] = {
-                departamento: emp.departamento || '',
-                numero_empleado: emp.numero_empleado || ''
-              };
-            });
-
-            // Combinar datos
-            processedData = data.map(item => {
-              const empleadoInfo = employeesMap[item.nombre] || {};
-              return {
-                ...item,
-                departamento: empleadoInfo.departamento || item.departamento || '',
-                numero_empleado: empleadoInfo.numero_empleado || item.numero_empleado || ''
-              };
-            });
-            console.log(`✅ Datos combinados con empleados: ${processedData.length} registros`);
-          }
-        } catch (error) {
-          console.error('Error combinando con empleados:', error);
-          // Continuar con los datos originales
-          processedData = data;
-        }
-      }
-
-      // Combinar con observaciones si es necesario
-      const dataConObservaciones = processedData.map(item => ({
-        ...item,
-        observacion: observaciones[item.numero_empleado || item.id] || ''
-      }));
-
-      // Filtrar solo empleados activos (si tenemos la lista de empleados)
-      let filteredData = dataConObservaciones;
-      if (employees.length > 0) {
-        filteredData = dataConObservaciones.filter(item => {
-          const employee = employees.find(emp => 
-            emp.nombre_completo === item.nombre || 
-            emp.numero_empleado === item.numero_empleado
-          );
-          return employee && employee.activo;
+      
+      // Solo combinar con empleados si es necesario (optimización)
+      const needsEmployeeData = data.length > 0 && (!data[0].departamento || data[0].departamento === '');
+      
+      if (needsEmployeeData && employees.length > 0) {
+        console.log('🔄 Combinando con datos de empleados...');
+        
+        // Crear mapa de empleados para acceso rápido
+        const employeesMap = new Map();
+        employees.forEach(emp => {
+          employeesMap.set(emp.nombre_completo, {
+            departamento: emp.departamento || '',
+            numero_empleado: emp.numero_empleado || ''
+          });
         });
-        console.log(`👥 Empleados activos filtrados: ${filteredData.length} de ${data.length}`);
+        
+        processedData = data.map(item => {
+          const empleadoInfo = employeesMap.get(item.nombre) || {};
+          return {
+            ...item,
+            departamento: empleadoInfo.departamento || item.departamento || '',
+            numero_empleado: empleadoInfo.numero_empleado || item.numero_empleado || ''
+          };
+        });
       }
 
-      // Calcular estadísticas de la semana
+      // Filtrar solo empleados activos si tenemos la lista
+      let filteredData = processedData;
+      if (employees.length > 0) {
+        // Crear Set de IDs de empleados activos para búsqueda rápida
+        const activeEmployeeIds = new Set(
+          employees.filter(emp => emp.activo)
+                  .map(emp => emp.numero_empleado || emp.nombre_completo)
+        );
+        
+        filteredData = processedData.filter(item => 
+          activeEmployeeIds.has(item.numero_empleado) || 
+          activeEmployeeIds.has(item.nombre)
+        );
+      }
+
+      // Calcular estadísticas
       const estadisticas = calcularEstadisticasSemana(filteredData);
       
-      console.log('\n📊 ESTADÍSTICAS CALCULADAS:');
-      console.log(`Total empleados: ${estadisticas.totalEmpleados}`);
-      console.log(`Total presentes: ${estadisticas.totalPresentes}`);
-      console.log(`Total faltas: ${estadisticas.totalFaltas}`);
-      console.log(`Porcentaje asistencia: ${estadisticas.porcentajeAsistencia}%`);
-
-      // Establecer los datos
+      // Guardar en cache
+      const cacheData = {
+        data: filteredData,
+        stats: estadisticas,
+        timestamp: Date.now()
+      };
+      sessionStorage.setItem(cacheKey, JSON.stringify(cacheData));
+      
+      // Actualizar estado
       setWeekStats(estadisticas);
       setWeeklyData(filteredData);
-
-      console.log('\n✅ fetchWeeklyData COMPLETADO EXITOSAMENTE');
-      console.log('========================================\n');
+      
+      console.log(`✅ Datos semanales cargados: ${filteredData.length} empleados`);
 
     } catch (fetchError) {
       clearTimeout(timeoutId);
       
       if (fetchError.name === 'AbortError') {
-        console.error('⏰ Timeout: La solicitud tardó demasiado en responder');
-        alert('La solicitud está tardando demasiado. Por favor, verifica tu conexión a internet.');
+        console.error('⏰ Timeout: La solicitud tardó demasiado');
+        
+        // Intentar con datos cacheados antiguos si existen
+        if (cachedData) {
+          console.log('🔄 Usando datos cacheados debido a timeout');
+          const { data: cachedWeeklyData, stats: cachedStats } = JSON.parse(cachedData);
+          setWeeklyData(cachedWeeklyData);
+          setWeekStats(cachedStats);
+        } else {
+          alert('La solicitud está tardando demasiado. Por favor, verifica tu conexión.');
+        }
       } else {
-        throw fetchError; // Re-lanzar para que sea capturado por el catch externo
+        throw fetchError;
       }
     }
 
   } catch (error) {
-    console.error('❌ ERROR CRÍTICO en fetchWeeklyData:', error);
-    console.error('Tipo de error:', error.name);
-    console.error('Mensaje:', error.message);
-    console.error('Stack trace:', error.stack);
-
-    // Mensajes de error más específicos
-    let errorMessage = 'Error al cargar datos semanales';
+    console.error('❌ Error en fetchWeeklyData:', error);
     
-    if (error.message.includes('Failed to fetch')) {
-      errorMessage = 'Error de conexión al servidor. Verifica tu conexión a internet.';
-    } else if (error.message.includes('404')) {
-      errorMessage = 'La API no está disponible. Contacta al administrador.';
-    } else if (error.message.includes('NetworkError')) {
-      errorMessage = 'Error de red. Verifica tu conexión e intenta nuevamente.';
-    } else if (error.message.includes('server')) {
-      errorMessage = `Error del servidor: ${error.message}`;
+    // Intentar usar datos cacheados como fallback
+    const cacheKey = `week_${selectedWeek}_${startDate}_${endDate}`;
+    const cachedData = sessionStorage.getItem(cacheKey);
+    
+    if (cachedData) {
+      console.log('🔄 Usando datos cacheados como fallback');
+      const { data: cachedWeeklyData, stats: cachedStats } = JSON.parse(cachedData);
+      setWeeklyData(cachedWeeklyData);
+      setWeekStats(cachedStats);
     } else {
-      errorMessage = `Error: ${error.message}`;
+      // Establecer datos vacíos
+      setWeeklyData([]);
+      setWeekStats({
+        totalEmpleados: 0,
+        totalPresentes: 0,
+        totalFaltas: 0,
+        porcentajeAsistencia: 0
+      });
     }
-
-    // Mostrar error en consola más detallado
-    console.error('Mensaje de error para usuario:', errorMessage);
-    
-    // Opcional: Mostrar alerta al usuario
-    alert(errorMessage);
-
-    // Establecer datos vacíos para evitar errores en la UI
-    setWeeklyData([]);
-    setWeekStats({
-      totalEmpleados: 0,
-      totalPresentes: 0,
-      totalFaltas: 0,
-      porcentajeAsistencia: 0
-    });
   } finally {
     setWeeklyLoading(false);
   }
 };
 
-  // Función corregida para calcular estadísticas de la semana
-  // Función corregida para calcular estadísticas de la semana
 // Función corregida para calcular estadísticas de la semana
 const calcularEstadisticasSemana = (datos) => {
   if (!datos || datos.length === 0) {
@@ -773,13 +741,19 @@ const calcularEstadisticasSemana = (datos) => {
   
   datos.forEach(empleado => {
     diasSemana.forEach(dia => {
+      // Obtener la fecha del día
+      const fechaDia = calcularFechaParaDiaSemana(selectedWeek, dia);
+      
+      // Verificar si es fecha inactiva del sistema
+      const esFechaInactivaSistema = esFechaInactiva(fechaDia);
+      
       // Verificar si es día laboral válido
       const esFuturo = empleado.esFuturo?.[dia];
       const esInactivo = empleado.esInactivo?.[dia];
       const esFinDeSemana = empleado.esFinDeSemana?.[dia];
       
-      // Solo contar días que sean laborales y no futuros
-      if (!esFuturo && !esInactivo && !esFinDeSemana) {
+      // Solo contar días que sean laborales y no futuros ni inactivos
+      if (!esFuturo && !esInactivo && !esFinDeSemana && !esFechaInactivaSistema) {
         totalDiasLaborales++; // Contar día laboral
         
         // Contar 'X' (asistencia) o 'R' (retardo) como presente
@@ -878,111 +852,104 @@ const calcularEstadisticasSemana = (datos) => {
     }
   };
 
-  // Obtener datos de MongoDB
-  const fetchDataFromDB = async () => {
-    setRefreshing(true);
-    setDbStatus('conectando');
+
+
+// Obtener datos de MongoDB - VERSIÓN OPTIMIZADA
+const fetchDataFromDB = async (forceRefresh = false) => {
+  // Si ya está refrescando y no forzamos refresh, salir
+  if (refreshing && !forceRefresh) return;
+  
+  setRefreshing(true);
+  setDbStatus('conectando');
+  
+  try {
+    console.log('🔄 Carga optimizada de datos desde MongoDB...');
     
-    try {
-      console.log('🔄 Iniciando carga de datos desde MongoDB...');
-      
-      const statsResponse = await fetch('/api/estadisticas');
-      
-      if (!statsResponse.ok) {
-        const errorText = await statsResponse.text();
-        console.error('❌ Error en estadísticas:', statsResponse.status, errorText);
-        await fetchDirectAPIs();
-        return;
-      }
-      
+    // Usar Promise.all para cargar datos en paralelo
+    const [statsResponse, attendanceResponse] = await Promise.all([
+      fetch('/api/estadisticas'),
+      fetch(`/api/asistencias?${new URLSearchParams({
+        buscar: searchTerm || '',
+        fecha: dateFilter || '',
+        limite: '500' // Reducir límite para mejorar velocidad
+      })}`)
+    ]);
+
+    // Procesar estadísticas
+    if (statsResponse.ok) {
       const statsData = await statsResponse.json();
+      setStats(statsData.error ? {
+        total_empleados: statsData.total_empleados || 0,
+        empleados_activos: statsData.empleados_activos || 0,
+        total_asistencias: statsData.total_asistencias || 0,
+        asistencias_hoy: statsData.asistencias_hoy || 0,
+        empleados_unicos_hoy: statsData.empleados_unicos_hoy || 0,
+        registros_por_area: statsData.registros_por_area || {}
+      } : statsData);
+    }
+
+    // Procesar asistencias
+    if (attendanceResponse.ok) {
+      const attendanceData = await attendanceResponse.json();
       
-      if (statsData.error) {
-        console.warn('⚠️ Estadísticas con error:', statsData.error);
-        setStats({
-          total_empleados: statsData.total_empleados || 0,
-          empleados_activos: statsData.empleados_activos || 0,
-          total_asistencias: statsData.total_asistencias || 0,
-          asistencias_hoy: statsData.asistencias_hoy || 0,
-          empleados_unicos_hoy: statsData.empleados_unicos_hoy || 0,
-          registros_por_area: statsData.registros_por_area || {}
-        });
-      } else {
-        setStats(statsData);
-      }
-      
-      const params = new URLSearchParams();
-      if (searchTerm) params.append('buscar', searchTerm);
-      if (dateFilter) params.append('fecha', dateFilter);
-      params.append('limite', '1000');
-      
-      const attendanceResponse = await fetch(`/api/asistencias?${params}`);
-      
-      if (!attendanceResponse.ok) {
-        console.error('❌ Error en asistencias:', attendanceResponse.status);
-        setAttendanceData([]);
-      } else {
-        const attendanceData = await attendanceResponse.json();
-        console.log(`📝 ${attendanceData.length} registros cargados`);
-        
-        // Obtener empleados para combinar con departamento
-        const employeesResponse = await fetch('/api/empleados');
-        let employeesMap = {};
-        
-        if (employeesResponse.ok) {
-          const empleados = await employeesResponse.json();
-          // Crear mapa de empleados por número
-          empleados.forEach(emp => {
-            employeesMap[emp.numero_empleado] = {
-              departamento: emp.departamento || '',
-              nombre_completo: emp.nombre_completo || ''
-            };
-          });
-        }
-        
-        const processedData = attendanceData.map(record => {
-          const empleadoInfo = employeesMap[record.numero_empleado] || {};
-          
-          return {
-            ...record,
-            employeeId: record.numero_empleado || '',
-            employeeName: record.nombre_empleado || empleadoInfo.nombre_completo || '',
-            date: record.fecha || '',
-            time: record.hora || '',
-            timestamp: record.marca_tiempo || new Date().toISOString(),
-            department: record.area_empleado || '',
-            departamento: empleadoInfo.departamento || record.departamento || '',
-            type: record.tipo_registro || 'entrada'
+      // Crear mapa de empleados solo si es necesario
+      let employeesMap = {};
+      if (employees.length > 0) {
+        employees.forEach(emp => {
+          employeesMap[emp.numero_empleado] = {
+            departamento: emp.departamento || '',
+            nombre_completo: emp.nombre_completo || ''
           };
         });
-        
-        setAttendanceData(processedData);
       }
       
-      await fetchAvailableDates();
-      
-      setLastUpdated(new Date());
-      setDbStatus('conectado');
-      
-    } catch (error) {
-      console.error('❌ Error fetching data from MongoDB:', error);
-      setDbStatus('error');
-      
-      setStats({
-        total_empleados: 0,
-        empleados_activos: 0,
-        total_asistencias: 0,
-        asistencias_hoy: 0,
-        empleados_unicos_hoy: 0,
-        registros_por_area: {}
+      const processedData = attendanceData.map(record => {
+        const empleadoInfo = employeesMap[record.numero_empleado] || {};
+        
+        return {
+          ...record,
+          employeeId: record.numero_empleado || '',
+          employeeName: record.nombre_empleado || empleadoInfo.nombre_completo || '',
+          date: record.fecha || '',
+          time: record.hora || '',
+          timestamp: record.marca_tiempo || new Date().toISOString(),
+          department: record.area_empleado || '',
+          departamento: empleadoInfo.departamento || record.departamento || '',
+          type: record.tipo_registro || 'entrada'
+        };
       });
       
-      setAttendanceData([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setAttendanceData(processedData);
+      console.log(`📝 ${processedData.length} registros cargados`);
     }
-  };
+    
+    // Cargar fechas disponibles en segundo plano
+    fetchAvailableDates().catch(() => {
+      console.warn('No se pudieron cargar fechas disponibles');
+    });
+    
+    setLastUpdated(new Date());
+    setDbStatus('conectado');
+    
+  } catch (error) {
+    console.error('❌ Error fetching data:', error);
+    setDbStatus('error');
+    
+    // Datos de respaldo
+    setStats({
+      total_empleados: employees.length || 0,
+      empleados_activos: employees.filter(e => e.activo).length || 0,
+      total_asistencias: 0,
+      asistencias_hoy: 0,
+      empleados_unicos_hoy: 0,
+      registros_por_area: {}
+    });
+    
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
 
   // Función alternativa para conectar a APIs directamente
   const fetchDirectAPIs = async () => {
@@ -1068,23 +1035,41 @@ const calcularEstadisticasSemana = (datos) => {
 
   // ============ EFECTOS ============
   
-  useEffect(() => {
-    fetchDataFromDB();
-    fetchEmployees();
-    fetchObservaciones();
-    fetchAvailableWeeks();
-    fetchAvailableDates();
-    
-    // Configurar semana inicial
-    const weekNumber = getCurrentWeekNumber();
-    const weekRange = getWeekRangeByNumber(weekNumber);
-    setSelectedWeek(weekNumber);
-    setWeekRange(weekRange);
-    fetchWeeklyData(weekRange.start, weekRange.end);
-    
-    const interval = setInterval(fetchDataFromDB, 30000);
-    return () => clearInterval(interval);
-  }, []);
+// ============ EFECTOS ============
+  
+useEffect(() => {
+  const loadInitialData = async () => {
+    try {
+      // 1. Primero cargar datos esenciales
+      await fetchEmployees();
+      
+      // 2. Cargar estadísticas y datos básicos
+      await fetchDataFromDB();
+      
+      // 3. Configurar semana inicial (no esperar)
+      const weekNumber = getCurrentWeekNumber();
+      const weekRange = getWeekRangeByNumber(weekNumber);
+      setSelectedWeek(weekNumber);
+      setWeekRange(weekRange);
+      
+      // 4. Cargar datos en paralelo para mejorar velocidad
+      await Promise.all([
+        fetchTiposFalta(),
+        fetchAvailableWeeks(),
+        fetchAvailableDates(),
+        fetchWeeklyData(weekRange.start, weekRange.end) // Pasar fechas directamente
+      ]);
+      
+    } catch (error) {
+      console.error('Error en carga inicial:', error);
+    }
+  };
+  
+  loadInitialData();
+  
+  const interval = setInterval(fetchDataFromDB, 30000);
+  return () => clearInterval(interval);
+}, []);
 
   useEffect(() => {
     if (employees.length > 0 && !employeesLoading) {
@@ -1233,550 +1218,662 @@ const calcularEstadisticasSemana = (datos) => {
   // ============ FUNCIONES DE EXPORTACIÓN ============
   
   // Exportar datos semanales a Excel con nuevo diseño
-  const exportWeeklyToExcel = async () => {
+  // Función para exportar a Excel - VERSIÓN CORREGIDA
+const exportWeeklyToExcel = async () => {
+  try {
+    let tiposFaltaPorFechaMap = {};
+    let empleadosMap = {};
+
     try {
-      let observacionesMap = {};
-      let empleadosMap = {};
-      let tiposFaltaMap = {};
-      let tiposFaltaPorFechaMap = {};
-
-      try {
-        const obsRes = await fetch('/api/observaciones');
-        if (obsRes.ok) {
-          const data = await obsRes.json();
-          data.forEach(obs => {
-            const employeeId = obs.employeeId;
-            observacionesMap[employeeId] = obs.text || '';
-            tiposFaltaMap[employeeId] = obs.tipoFalta || '';
-            
-            if (obs.fecha && obs.tipoFalta && obs.tipoFalta.trim()) {
-              if (!tiposFaltaPorFechaMap[employeeId]) {
-                tiposFaltaPorFechaMap[employeeId] = {};
-              }
-              tiposFaltaPorFechaMap[employeeId][obs.fecha] = obs.tipoFalta;
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error cargando observaciones:', error);
-      }
-
-      try {
-        const empRes = await fetch('/api/empleados');
-        if (empRes.ok) {
-          const data = await empRes.json();
-          data.forEach(emp => {
-            empleadosMap[emp.nombre_completo] = emp.numero_empleado;
-          });
-        }
-      } catch (error) {
-        console.error('Error cargando empleados:', error);
-      }
-
-      const weeklyDataFinal = weeklyData.map(row => {
-        const num = empleadosMap[row.nombre];
-        const obs = num ? observacionesMap[num] : '';
-        const tipoFalta = num ? tiposFaltaMap[num] : '';
-        
-        return { 
-          ...row, 
-          numero_empleado: num || 'N/A', 
-          observacion: obs?.trim() || '',
-          tipoFalta: tipoFalta || ''
-        };
-      });
-
-      if (!weeklyDataFinal.length) {
-        alert('No hay datos para exportar');
-        return;
-      }
-
-      const wb = XLSX.utils.book_new();
-
+      // OBTENER SOLO LAS OBSERVACIONES DE LOS DÍAS ESPECÍFICOS DE LA SEMANA
       const fechaJueves = calcularFechaParaDiaSemana(selectedWeek, 'jueves');
       const fechaViernes = calcularFechaParaDiaSemana(selectedWeek, 'viernes');
       const fechaLunes = calcularFechaParaDiaSemana(selectedWeek, 'lunes');
       const fechaMartes = calcularFechaParaDiaSemana(selectedWeek, 'martes');
       const fechaMiercoles = calcularFechaParaDiaSemana(selectedWeek, 'miercoles');
-
-      const headers = [
-        'Número Empleado','Nombre','Área','Departamento',
-        `Jueves\n${fechaJueves}`,
-        `Viernes\n${fechaViernes}`,
-        `Lunes\n${fechaLunes}`,
-        `Martes\n${fechaMartes}`,
-        `Miércoles\n${fechaMiercoles}`,
-        'Faltas Totales',
-        'Observación'
-      ];
-
-      const formatDia = (v, f, i, esFinDeSemana, employeeId, fechaDia, esFalta = false) => {
-        if (f || i || esFinDeSemana) return '';
-        
-        if (v === 'X') {
-          return 'Asistencia';
-        } else {
-          if (esFalta && employeeId && fechaDia && tiposFaltaPorFechaMap[employeeId]) {
-            const tipoFaltaEspecifico = tiposFaltaPorFechaMap[employeeId][fechaDia];
-            if (tipoFaltaEspecifico && tipoFaltaEspecifico.trim()) {
-              return tipoFaltaEspecifico.trim();
-            }
-          }
-          if (esFalta && employeeId && tiposFaltaMap[employeeId] && tiposFaltaMap[employeeId].trim()) {
-            return tiposFaltaMap[employeeId].trim();
-          }
-          if (esFalta) {
-            return 'Falta';
-          }
-          return '';
-        }
-      };
-
-      const getFaltasTotales = r => {
-        const dias = ['jueves','viernes','lunes','martes','miercoles'];
-        return dias.filter(d => {
-          const esFinDeSemana = r.esFinDeSemana?.[d];
-          return (
-            (r[d] === '' || r[d] === undefined) && // Solo contar si está vacío
-            !r.esFuturo?.[d] && 
-            !r.esInactivo?.[d] &&
-            !esFinDeSemana
-          );
-        }).length;
-      };
-
-      const rows = weeklyDataFinal.map(r => {
-        const employeeId = r.numero_empleado;
-        
-        const esFaltaJueves = r.jueves !== 'X' && !r.esFuturo?.jueves && !r.esInactivo?.jueves && !r.esFinDeSemana?.jueves;
-        const esFaltaViernes = r.viernes !== 'X' && !r.esFuturo?.viernes && !r.esInactivo?.viernes && !r.esFinDeSemana?.viernes;
-        const esFaltaLunes = r.lunes !== 'X' && !r.esFuturo?.lunes && !r.esInactivo?.lunes && !r.esFinDeSemana?.lunes;
-        const esFaltaMartes = r.martes !== 'X' && !r.esFuturo?.martes && !r.esInactivo?.martes && !r.esFinDeSemana?.martes;
-        const esFaltaMiercoles = r.miercoles !== 'X' && !r.esFuturo?.miercoles && !r.esInactivo?.miercoles && !r.esFinDeSemana?.miercoles;
-        
-        return [
-          r.numero_empleado,
-          r.nombre,
-          r.area,
-          r.departamento || '',
-          formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves, r.esFinDeSemana?.jueves, employeeId, fechaJueves, esFaltaJueves),
-          formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes, r.esFinDeSemana?.viernes, employeeId, fechaViernes, esFaltaViernes),
-          formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes, r.esFinDeSemana?.lunes, employeeId, fechaLunes, esFaltaLunes),
-          formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes, r.esFinDeSemana?.martes, employeeId, fechaMartes, esFaltaMartes),
-          formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles, r.esFinDeSemana?.miercoles, employeeId, fechaMiercoles, esFaltaMiercoles),
-          getFaltasTotales(r),
-          r.observacion
-        ];
-      });
-
-      const sheetData = [
-        ['REPORTE SEMANAL DE ASISTENCIAS'],
-        [`Semana ${selectedWeek}: ${weekRange.start} al ${weekRange.end}`],
-        [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`],
-        [],
-        [`Total empleados: ${weeklyDataFinal.length}`],
-        [`Faltas totales: ${weekStats.totalFaltas}`],
-        [`Porcentaje de asistencia: ${weekStats.porcentajeAsistencia}%`],
-        [],
-        headers,
-        ...rows
-      ];
-
-      const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-      const titleStyle = {
-        font: { bold: true, sz: 16, color: { rgb: '000000' } },
-        alignment: { horizontal: 'center', vertical: 'center' }
-      };
-
-      const subtitleStyle = {
-        font: { bold: true, sz: 12, color: { rgb: '000000' } },
-        alignment: { horizontal: 'left', vertical: 'center' }
-      };
-
-      const statsStyle = {
-        font: { bold: true, sz: 11, color: { rgb: '000000' } },
-        alignment: { horizontal: 'left', vertical: 'center' }
-      };
-
-      const headerStyle = {
-        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
-        fill: { fgColor: { rgb: '2E5A8D' } },
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } }
-        }
-      };
-
-      const cellStyle = {
-        font: { sz: 11, color: { rgb: '000000' } },
-        alignment: { horizontal: 'center', vertical: 'center' },
-        border: {
-          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-        }
-      };
-
-      const nombreCellStyle = {
-        font: { sz: 11, color: { rgb: '000000' } },
-        alignment: { horizontal: 'left', vertical: 'center' },
-        border: {
-          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-        }
-      };
-
-      const observacionCellStyle = {
-        font: { sz: 11, color: { rgb: '000000' } },
-        alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
-        border: {
-          top: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          left: { style: 'thin', color: { rgb: 'E0E0E0' } },
-          right: { style: 'thin', color: { rgb: 'E0E0E0' } }
-        }
-      };
-
-      const range = XLSX.utils.decode_range(ws['!ref']);
-
-      for (let R = 0; R <= range.e.r; R++) {
-        for (let C = 0; C <= range.e.c; C++) {
-          const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-          if (!cell) continue;
-
-          if (R === 0 || R === 1) {
-            cell.s = titleStyle;
-            if (R === 0) {
-              if (!ws['!merges']) ws['!merges'] = [];
-              ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
-            }
-            if (R === 1) {
-              if (!ws['!merges']) ws['!merges'] = [];
-              ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
-            }
-          }
-
-          if (R === 2) {
-            cell.s = subtitleStyle;
-            if (!ws['!merges']) ws['!merges'] = [];
-            ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
-          }
-
-          if (R >= 4 && R <= 6) {
-            cell.s = statsStyle;
-          }
-
-          if (R === 8) {
-            cell.s = headerStyle;
-          }
-
-          if (R > 8) {
-            if (C === 1) {
-              cell.s = nombreCellStyle;
-            }
-            else if (C === headers.length - 1) {
-              cell.s = observacionCellStyle;
-            }
-            else if (C >= 4 && C <= 8) {
-              const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
-              const diaStyle = { ...cellStyle };
-              
-              if (cellValue === 'Asistencia') {
-                diaStyle.fill = { fgColor: { rgb: 'C6EFCE' } };
-                diaStyle.font = { ...diaStyle.font, color: { rgb: '006100' }, bold: true };
-              } else if (cellValue === 'Falta') {
-                diaStyle.fill = { fgColor: { rgb: 'FFC7CE' } };
-                diaStyle.font = { ...diaStyle.font, color: { rgb: '9C0006' }, bold: true };
-              } else if (cellValue === 'Vacaciones') {
-                diaStyle.fill = { fgColor: { rgb: 'FFEB9C' } };
-                diaStyle.font = { ...diaStyle.font, color: { rgb: '9C5700' }, bold: true };
-              } else if (cellValue === 'Incapacidad') {
-                diaStyle.fill = { fgColor: { rgb: 'DDEBF7' } };
-                diaStyle.font = { ...diaStyle.font, color: { rgb: '2F5496' }, bold: true };
+      
+      // Array con todas las fechas de la semana
+      const fechasSemana = [fechaJueves, fechaViernes, fechaLunes, fechaMartes, fechaMiercoles];
+      
+      console.log('📅 Buscando observaciones para las fechas específicas:', fechasSemana);
+      
+      // Obtener observaciones para CADA fecha específica
+      for (const fechaDia of fechasSemana) {
+        const response = await fetch(`/api/observaciones?fecha=${fechaDia}`);
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`✅ ${data.length} observaciones para ${fechaDia}`);
+          
+          data.forEach(obs => {
+            if (obs.tipoFalta && obs.tipoFalta.trim()) {
+              const employeeId = obs.employeeId;
+              if (!tiposFaltaPorFechaMap[employeeId]) {
+                tiposFaltaPorFechaMap[employeeId] = {};
               }
-              
-              cell.s = diaStyle;
+              // Solo guardar si coincide con la fecha exacta
+              if (obs.fecha === fechaDia) {
+                tiposFaltaPorFechaMap[employeeId][fechaDia] = obs.tipoFalta;
+                console.log(`📝 Empleado ${employeeId}: ${obs.tipoFalta} el ${fechaDia}`);
+              }
             }
-            else {
-              cell.s = cellStyle;
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando tipos de falta:', error);
+    }
+
+    try {
+      const empRes = await fetch('/api/empleados');
+      if (empRes.ok) {
+        const data = await empRes.json();
+        data.forEach(emp => {
+          empleadosMap[emp.nombre_completo] = emp.numero_empleado;
+        });
+      }
+    } catch (error) {
+      console.error('Error cargando empleados:', error);
+    }
+
+    const weeklyDataFinal = weeklyData.map(row => {
+      const num = empleadosMap[row.nombre];
+      return { 
+        ...row, 
+        numero_empleado: num || 'N/A'
+      };
+    });
+
+    if (!weeklyDataFinal.length) {
+      alert('No hay datos para exportar');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    // Obtener fechas de cada día
+    const fechaJueves = calcularFechaParaDiaSemana(selectedWeek, 'jueves');
+    const fechaViernes = calcularFechaParaDiaSemana(selectedWeek, 'viernes');
+    const fechaLunes = calcularFechaParaDiaSemana(selectedWeek, 'lunes');
+    const fechaMartes = calcularFechaParaDiaSemana(selectedWeek, 'martes');
+    const fechaMiercoles = calcularFechaParaDiaSemana(selectedWeek, 'miercoles');
+
+    const headers = [
+      'Número Empleado','Nombre','Área','Departamento',
+      `Jueves\n${fechaJueves}`,
+      `Viernes\n${fechaViernes}`,
+      `Lunes\n${fechaLunes}`,
+      `Martes\n${fechaMartes}`,
+      `Miércoles\n${fechaMiercoles}`,
+      'Faltas Totales'
+    ];
+
+    // Función corregida para formatear cada día
+    const formatDia = (valor, esFuturo, esInactivo, esFinDeSemana, employeeId, fechaDia, esFalta = false) => {
+      // Verificar si es fecha inactiva del sistema
+      const esFechaInactivaSistema = esFechaInactiva(fechaDia);
+      
+      if (esFuturo || esInactivo || esFinDeSemana || esFechaInactivaSistema) return '';
+      
+      if (valor === 'X') {
+        return 'Asistencia';
+      } else if (valor === 'R') {
+        return 'Retardo';
+      } else {
+        // SOLO buscar tipo de falta específico para esta fecha y este empleado
+        if (esFalta && employeeId && fechaDia && tiposFaltaPorFechaMap[employeeId]) {
+          const tipoFaltaEspecifico = tiposFaltaPorFechaMap[employeeId][fechaDia];
+          if (tipoFaltaEspecifico && tipoFaltaEspecifico.trim()) {
+            console.log(`✅ Usando tipo de falta específico: ${employeeId} - ${fechaDia}: ${tipoFaltaEspecifico}`);
+            return tipoFaltaEspecifico.trim();
+          }
+        }
+        
+        // Si no hay tipo de falta específico, mostrar "Falta" solo si es falta real
+        if (esFalta) {
+          return 'Falta';
+        }
+        return '';
+      }
+    };
+
+    const getFaltasTotales = r => {
+      const dias = ['jueves','viernes','lunes','martes','miercoles'];
+      return dias.filter(d => {
+        const esFinDeSemana = r.esFinDeSemana?.[d];
+        const fechaDia = calcularFechaParaDiaSemana(selectedWeek, d);
+        const esFechaInactivaSistema = esFechaInactiva(fechaDia);
+        
+        return (
+          (r[d] === '' || r[d] === undefined) && // Solo contar si está vacío
+          !r.esFuturo?.[d] && 
+          !r.esInactivo?.[d] &&
+          !esFinDeSemana &&
+          !esFechaInactivaSistema
+        );
+      }).length;
+    };
+
+    const rows = weeklyDataFinal.map(r => {
+      const employeeId = r.numero_empleado;
+      
+      // Determinar si cada día es falta
+      const esFaltaJueves = r.jueves !== 'X' && r.jueves !== 'R' && !r.esFuturo?.jueves && !r.esInactivo?.jueves && !r.esFinDeSemana?.jueves;
+      const esFaltaViernes = r.viernes !== 'X' && r.viernes !== 'R' && !r.esFuturo?.viernes && !r.esInactivo?.viernes && !r.esFinDeSemana?.viernes;
+      const esFaltaLunes = r.lunes !== 'X' && r.lunes !== 'R' && !r.esFuturo?.lunes && !r.esInactivo?.lunes && !r.esFinDeSemana?.lunes;
+      const esFaltaMartes = r.martes !== 'X' && r.martes !== 'R' && !r.esFuturo?.martes && !r.esInactivo?.martes && !r.esFinDeSemana?.martes;
+      const esFaltaMiercoles = r.miercoles !== 'X' && r.miercoles !== 'R' && !r.esFuturo?.miercoles && !r.esInactivo?.miercoles && !r.esFinDeSemana?.miercoles;
+      
+      return [
+        r.numero_empleado,
+        r.nombre,
+        r.area,
+        r.departamento || '',
+        formatDia(r.jueves, r.esFuturo?.jueves, r.esInactivo?.jueves, r.esFinDeSemana?.jueves, employeeId, fechaJueves, esFaltaJueves),
+        formatDia(r.viernes, r.esFuturo?.viernes, r.esInactivo?.viernes, r.esFinDeSemana?.viernes, employeeId, fechaViernes, esFaltaViernes),
+        formatDia(r.lunes, r.esFuturo?.lunes, r.esInactivo?.lunes, r.esFinDeSemana?.lunes, employeeId, fechaLunes, esFaltaLunes),
+        formatDia(r.martes, r.esFuturo?.martes, r.esInactivo?.martes, r.esFinDeSemana?.martes, employeeId, fechaMartes, esFaltaMartes),
+        formatDia(r.miercoles, r.esFuturo?.miercoles, r.esInactivo?.miercoles, r.esFinDeSemana?.miercoles, employeeId, fechaMiercoles, esFaltaMiercoles),
+        getFaltasTotales(r)
+      ];
+    });
+
+    const sheetData = [
+      ['REPORTE SEMANAL DE ASISTENCIAS'],
+      [`Semana ${selectedWeek}: ${weekRange.start} al ${weekRange.end}`],
+      [`Generado: ${new Date().toLocaleDateString('es-MX')} ${getCurrentJaliscoTime()} p.m.`],
+      [],
+      [`Total empleados: ${weeklyDataFinal.length}`],
+      [`Faltas totales: ${weekStats.totalFaltas}`],
+      [`Porcentaje de asistencia: ${weekStats.porcentajeAsistencia}%`],
+      [],
+      headers,
+      ...rows
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    const titleStyle = {
+      font: { bold: true, sz: 16, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const subtitleStyle = {
+      font: { bold: true, sz: 12, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const statsStyle = {
+      font: { bold: true, sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+
+    const headerStyle = {
+      font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '2E5A8D' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } }
+      }
+    };
+
+    const cellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const nombreCellStyle = {
+      font: { sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        left: { style: 'thin', color: { rgb: 'E0E0E0' } },
+        right: { style: 'thin', color: { rgb: 'E0E0E0' } }
+      }
+    };
+
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    for (let R = 0; R <= range.e.r; R++) {
+      for (let C = 0; C <= range.e.c; C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        if (!cell) continue;
+
+        if (R === 0 || R === 1) {
+          cell.s = titleStyle;
+          if (R === 0) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
+          }
+          if (R === 1) {
+            if (!ws['!merges']) ws['!merges'] = [];
+            ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } });
+          }
+        }
+
+        if (R === 2) {
+          cell.s = subtitleStyle;
+          if (!ws['!merges']) ws['!merges'] = [];
+          ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } });
+        }
+
+        if (R >= 4 && R <= 6) {
+          cell.s = statsStyle;
+        }
+
+        if (R === 8) {
+          cell.s = headerStyle;
+        }
+
+        if (R > 8) {
+          if (C === 1) {
+            cell.s = nombreCellStyle;
+          }
+          else if (C >= 4 && C <= 8) {
+            const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
+            const diaStyle = { ...cellStyle };
+            
+            if (cellValue === 'Asistencia') {
+              diaStyle.fill = { fgColor: { rgb: 'C6EFCE' } };
+              diaStyle.font = { ...diaStyle.font, color: { rgb: '006100' }, bold: true };
+            } else if (cellValue === 'Retardo') {
+              diaStyle.fill = { fgColor: { rgb: 'FFEB9C' } };
+              diaStyle.font = { ...diaStyle.font, color: { rgb: '9C5700' }, bold: true };
+            } else if (cellValue === 'Falta') {
+              diaStyle.fill = { fgColor: { rgb: 'FFC7CE' } };
+              diaStyle.font = { ...diaStyle.font, color: { rgb: '9C0006' }, bold: true };
+            } else if (cellValue === 'Vacaciones') {
+              diaStyle.fill = { fgColor: { rgb: 'FFEB9C' } };
+              diaStyle.font = { ...diaStyle.font, color: { rgb: '9C5700' }, bold: true };
+            } else if (cellValue === 'Incapacidad') {
+              diaStyle.fill = { fgColor: { rgb: 'DDEBF7' } };
+              diaStyle.font = { ...diaStyle.font, color: { rgb: '2F5496' }, bold: true };
+            } else if (cellValue === 'Prestamo') {
+              diaStyle.fill = { fgColor: { rgb: 'EADDFF' } };
+              diaStyle.font = { ...diaStyle.font, color: { rgb: '5A3D8A' }, bold: true };
             }
+            
+            cell.s = diaStyle;
+          }
+          else if (C === 9) {
+            const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
+            const faltasStyle = { ...cellStyle };
+            
+            if (cellValue > 0) {
+              faltasStyle.fill = { fgColor: { rgb: 'FFC7CE' } };
+              faltasStyle.font = { ...faltasStyle.font, color: { rgb: '9C0006' }, bold: true };
+            } else {
+              faltasStyle.fill = { fgColor: { rgb: 'C6EFCE' } };
+              faltasStyle.font = { ...faltasStyle.font, color: { rgb: '006100' }, bold: true };
+            }
+            
+            cell.s = faltasStyle;
+          }
+          else {
+            cell.s = cellStyle;
           }
         }
       }
+    }
 
-      ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
-      ];
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: headers.length - 1 } }
+    ];
 
-      ws['!cols'] = [
-        { wch: 16 },
-        { wch: 30 },
-        { wch: 15 },
-        { wch: 18 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 12 },
-        { wch: 35 }
-      ];
+    ws['!cols'] = [
+      { wch: 16 },
+      { wch: 30 },
+      { wch: 15 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 12 }
+    ];
 
-      ws['!freeze'] = { xSplit: 0, ySplit: 8, topLeftCell: 'A9', activePane: 'bottomRight' };
+    ws['!freeze'] = { xSplit: 0, ySplit: 8, topLeftCell: 'A9', activePane: 'bottomRight' };
 
-      XLSX.utils.book_append_sheet(wb, ws, `Semana ${selectedWeek}`);
+    XLSX.utils.book_append_sheet(wb, ws, `Semana ${selectedWeek}`);
 
-      XLSX.writeFile(
-        wb,
-        `REPORTE_SEMANAL_ASISTENCIAS_SEMANA_${selectedWeek}_${weekRange.start.replace(/\//g, '-')}.xlsx`
+    XLSX.writeFile(
+      wb,
+      `REPORTE_SEMANAL_ASISTENCIAS_SEMANA_${selectedWeek}_${weekRange.start.replace(/\//g, '-')}.xlsx`
+    );
+
+    console.log('✅ Reporte semanal exportado con tipos de falta específicos por fecha');
+  } catch (e) {
+    console.error('❌ Error al exportar reporte semanal:', e);
+    alert('Error al exportar el Excel. Por favor, intente nuevamente.');
+  }
+};
+
+  // Exportar datos semanales a PDF con tipos de falta
+  // Exportar datos semanales a PDF - VERSIÓN CORREGIDA
+const exportWeeklyToPDF = async () => {
+  try {
+    const { jsPDF } = await import('jspdf');
+
+    let tiposFaltaPorFechaMap = {};
+    
+    try {
+      // OBTENER SOLO LAS OBSERVACIONES DE LOS DÍAS ESPECÍFICOS DE LA SEMANA
+      const fechaJueves = calcularFechaParaDiaSemana(selectedWeek, 'jueves');
+      const fechaViernes = calcularFechaParaDiaSemana(selectedWeek, 'viernes');
+      const fechaLunes = calcularFechaParaDiaSemana(selectedWeek, 'lunes');
+      const fechaMartes = calcularFechaParaDiaSemana(selectedWeek, 'martes');
+      const fechaMiercoles = calcularFechaParaDiaSemana(selectedWeek, 'miercoles');
+      
+      // Array con todas las fechas de la semana
+      const fechasSemana = [fechaJueves, fechaViernes, fechaLunes, fechaMartes, fechaMiercoles];
+      
+      console.log('📅 Buscando observaciones para PDF:', fechasSemana);
+      
+      for (const fechaDia of fechasSemana) {
+        const response = await fetch(`/api/observaciones?fecha=${fechaDia}`);
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`✅ ${data.length} observaciones para ${fechaDia}`);
+          
+          data.forEach(obs => {
+            if (obs.tipoFalta && obs.tipoFalta.trim()) {
+              const employeeId = obs.employeeId;
+              if (!tiposFaltaPorFechaMap[employeeId]) {
+                tiposFaltaPorFechaMap[employeeId] = {};
+              }
+              // Solo guardar si coincide con la fecha exacta
+              if (obs.fecha === fechaDia) {
+                tiposFaltaPorFechaMap[employeeId][fechaDia] = obs.tipoFalta;
+              }
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error cargando tipos de falta para PDF:', error);
+    }
+
+    let empleadosMap = {};
+    try {
+      const empRes = await fetch('/api/empleados');
+      if (empRes.ok) {
+        const data = await empRes.json();
+        data.forEach(emp => {
+          empleadosMap[emp.nombre_completo] = emp.numero_empleado;
+        });
+      }
+    } catch {}
+
+    const weeklyDataFinal = weeklyData.map(row => {
+      const num = empleadosMap[row.nombre];
+      return {
+        ...row,
+        numero_empleado: num || 'N/A'
+      };
+    });
+
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const MAX_ROWS = 12;
+    const totalPages = Math.ceil(weeklyDataFinal.length / MAX_ROWS);
+
+    // Función corregida para renderizar cada día
+    const renderDay = (valor, esFuturo, esInactivo, esFinDeSemana, employeeId, fechaDia) => {
+      const esFechaInactivaSistema = esFechaInactiva(fechaDia);
+      
+      if (esFuturo || esInactivo || esFinDeSemana || esFechaInactivaSistema) return { t: '—', c: [156, 163, 175] };
+      if (valor === 'X') return { t: '✓', c: [16, 185, 129] };
+      if (valor === 'R') return { t: 'R', c: [245, 158, 11] };
+      
+      // Buscar tipo de falta específico para esta fecha
+      if (employeeId && fechaDia && tiposFaltaPorFechaMap[employeeId] && tiposFaltaPorFechaMap[employeeId][fechaDia]) {
+        const tipoFalta = tiposFaltaPorFechaMap[employeeId][fechaDia];
+        let color;
+        switch(tipoFalta) {
+          case 'Vacaciones': color = [255, 235, 156]; break;
+          case 'Incapacidad': color = [221, 235, 247]; break;
+          case 'Prestamo': color = [234, 221, 255]; break;
+          case 'Falta': color = [255, 199, 206]; break;
+          default: color = [255, 199, 206]; break;
+        }
+        return { t: tipoFalta.charAt(0), c: color, texto: tipoFalta };
+      }
+      
+      // Si no hay asistencia y no hay tipo de falta específico, es falta
+      return { t: '✗', c: [239, 68, 68] };
+    };
+
+    const drawHeader = (page) => {
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, 26, pageWidth - 10, 26);
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(18);
+      pdf.setTextColor(17, 24, 39);
+      pdf.text('Reporte Semanal de Asistencias', 15, 15);
+
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        `Semana ${selectedWeek} · ${weekRange.start} al ${weekRange.end}`,
+        15,
+        22
       );
 
-      console.log('✅ Reporte semanal exportado con tipo de falta por fecha');
-    } catch (e) {
-      console.error('❌ Error al exportar reporte semanal:', e);
-      alert('Error al exportar el Excel. Por favor, intente nuevamente.');
-    }
-  };
+      pdf.text(
+        `Página ${page} de ${totalPages}`,
+        pageWidth - 15,
+        22,
+        { align: 'right' }
+      );
 
-  // Exportar datos semanales a PDF con observaciones
-  const exportWeeklyToPDF = async () => {
-    try {
-      const { jsPDF } = await import('jspdf');
+      const y = 30;
+      const cardW = 42;
+      const gap = 6;
 
-      let observacionesMap = {};
-      let tiposFaltaMap = {};
-      
-      try {
-        const obsRes = await fetch('/api/observaciones');
-        if (obsRes.ok) {
-          const data = await obsRes.json();
-          data.forEach(obs => {
-            if (!observacionesMap[obs.employeeId] || 
-                new Date(obs.date) > new Date(observacionesMap[obs.employeeId].date)) {
-              observacionesMap[obs.employeeId] = obs;
-            }
-            tiposFaltaMap[obs.employeeId] = obs.tipoFalta || '';
-          });
-        }
-      } catch {}
+      const metrics = [
+        { t: 'Empleados', v: weeklyDataFinal.length },
+        { t: 'Faltas', v: weekStats.totalFaltas },
+        { t: '% Asistencia', v: `${weekStats.porcentajeAsistencia}%` }
+      ];
 
-      let empleadosMap = {};
-      try {
-        const empRes = await fetch('/api/empleados');
-        if (empRes.ok) {
-          const data = await empRes.json();
-          data.forEach(emp => {
-            empleadosMap[emp.nombre_completo] = emp.numero_empleado;
-          });
-        }
-      } catch {}
-
-      const weeklyDataFinal = weeklyData.map(row => {
-        const num = empleadosMap[row.nombre];
-        const obs = num ? observacionesMap[num]?.text : null;
-        const tipoFalta = num ? tiposFaltaMap[num] : null;
-
-        return {
-          ...row,
-          numero_empleado: num || 'N/A',
-          observacion: obs && obs.trim() ? obs : '—',
-          tipoFalta: tipoFalta && tipoFalta.trim() ? tipoFalta : '—'
-        };
-      });
-
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-
-      const MAX_ROWS = 12;
-      const totalPages = Math.ceil(weeklyDataFinal.length / MAX_ROWS);
-
-      const renderDay = (valor, esFuturo, esInactivo, esFinDeSemana) => {
-        if (esFuturo || esInactivo || esFinDeSemana) return { t: '—', c: [156, 163, 175] };
-        if (valor === 'X') return { t: '✓', c: [16, 185, 129] };
-        return { t: '✗', c: [239, 68, 68] };
-      };
-
-      const drawHeader = (page) => {
+      metrics.forEach((m, i) => {
+        const x = 15 + i * (cardW + gap);
         pdf.setDrawColor(229, 231, 235);
-        pdf.line(10, 26, pageWidth - 10, 26);
-
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(18);
-        pdf.setTextColor(17, 24, 39);
-        pdf.text('Reporte Semanal de Asistencias', 15, 15);
-
-        pdf.setFontSize(10);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(107, 114, 128);
-        pdf.text(
-          `Semana ${selectedWeek} · ${weekRange.start} al ${weekRange.end}`,
-          15,
-          22
-        );
-
-        pdf.text(
-          `Página ${page} de ${totalPages}`,
-          pageWidth - 15,
-          22,
-          { align: 'right' }
-        );
-
-        const y = 30;
-        const cardW = 42;
-        const gap = 6;
-
-        const metrics = [
-          { t: 'Empleados', v: weeklyDataFinal.length },
-          { t: 'Faltas', v: weekStats.totalFaltas },
-          { t: '% Asistencia', v: `${weekStats.porcentajeAsistencia}%` }
-        ];
-
-        metrics.forEach((m, i) => {
-          const x = 15 + i * (cardW + gap);
-          pdf.setDrawColor(229, 231, 235);
-          pdf.roundedRect(x, y, cardW, 18, 3, 3);
-
-          pdf.setFontSize(7);
-          pdf.setTextColor(107, 114, 128);
-          pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
-
-          pdf.setFontSize(14);
-          pdf.setFont('helvetica', 'bold');
-          pdf.setTextColor(17, 24, 39);
-          pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
-        });
-      };
-
-      const colW = [45, 25, 35, 8, 8, 8, 8, 8, 12, 20, 40];
-
-      const drawTableHeader = (y) => {
-        pdf.setFillColor(243, 244, 246);
-        pdf.rect(10, y, pageWidth - 20, 9, 'F');
-
-        pdf.setFontSize(8);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(55, 65, 81);
-
-        const headers = ['Nombre', 'Área', 'Departamento', 'J', 'V', 'L', 'M', 'X', 'Faltas', 'Tipo Falta', 'Observación'];
-        let x = 12;
-        headers.forEach((h, i) => {
-          pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
-          x += colW[i];
-        });
-      };
-
-      const drawRow = (row, y) => {
-        let x = 12;
+        pdf.roundedRect(x, y, cardW, 18, 3, 3);
 
         pdf.setFontSize(7);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(m.t, x + cardW / 2, y + 6, { align: 'center' });
+
+        pdf.setFontSize(14);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(17, 24, 39);
-        const nombre = row.nombre.length > 20 ? row.nombre.substring(0, 20) + '...' : row.nombre;
-        pdf.text(nombre, x + 2, y + 6);
-        x += colW[0];
+        pdf.text(String(m.v), x + cardW / 2, y + 14, { align: 'center' });
+      });
+    };
 
-        pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(107, 114, 128);
-        pdf.text(row.area || '—', x + 2, y + 6);
-        x += colW[1];
+    const colW = [45, 25, 35, 8, 8, 8, 8, 8, 12, 30];
 
-        pdf.text(row.departamento || '—', x + 2, y + 6);
-        x += colW[2];
+    const drawTableHeader = (y) => {
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(10, y, pageWidth - 20, 9, 'F');
 
-        const dias = [
-          { v: row.jueves, f: row.esFuturo?.jueves, i: row.esInactivo?.jueves, fs: row.esFinDeSemana?.jueves },
-          { v: row.viernes, f: row.esFuturo?.viernes, i: row.esInactivo?.viernes, fs: row.esFinDeSemana?.viernes },
-          { v: row.lunes, f: row.esFuturo?.lunes, i: row.esInactivo?.lunes, fs: row.esFinDeSemana?.lunes },
-          { v: row.martes, f: row.esFuturo?.martes, i: row.esInactivo?.martes, fs: row.esFinDeSemana?.martes },
-          { v: row.miercoles, f: row.esFuturo?.miercoles, i: row.esInactivo?.miercoles, fs: row.esFinDeSemana?.miercoles }
-        ];
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(55, 65, 81);
 
-        dias.forEach(d => {
-          const r = renderDay(d.v, d.f, d.i, d.fs);
-          pdf.setFont('helvetica', 'bold');
-          pdf.setTextColor(...r.c);
-          pdf.text(r.t, x + colW[3] / 2, y + 6, { align: 'center' });
-          x += colW[3];
-        });
+      const headers = ['Nombre', 'Área', 'Departamento', 'J', 'V', 'L', 'M', 'X', 'Faltas', 'Tipos por Día'];
+      let x = 12;
+      headers.forEach((h, i) => {
+        pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
+        x += colW[i];
+      });
+    };
 
-        pdf.setTextColor(17, 24, 39);
-        const faltasTotales = ['jueves','viernes','lunes','martes','miercoles']
-          .filter(d => {
-            const esFinDeSemana = row.esFinDeSemana?.[d];
-            return (
-              row[d] !== 'X' && 
-              !row.esFuturo?.[d] && 
-              !row.esInactivo?.[d] &&
-              !esFinDeSemana
-            );
-          }).length;
-        pdf.text(String(faltasTotales), x + colW[8] / 2, y + 6, { align: 'center' });
-        x += colW[8];
+    const drawRow = (row, y) => {
+      let x = 12;
 
-        pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(75, 85, 99);
-        const tipoFalta = row.tipoFalta || '—';
-        const tipoFaltaShort = tipoFalta.length > 12 ? tipoFalta.substring(0, 12) + '...' : tipoFalta;
-        pdf.text(tipoFaltaShort, x + colW[9] / 2, y + 6, { align: 'center' });
-        x += colW[9];
-
-        const obs = row.observacion || '—';
-        const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
-        pdf.text(obsShort, x + 2, y + 6);
-
-        pdf.setDrawColor(229, 231, 235);
-        pdf.line(10, y + 9, pageWidth - 10, y + 9);
-      };
-
-      let page = 1;
-      for (let i = 0; i < weeklyDataFinal.length; i += MAX_ROWS) {
-        if (page > 1) pdf.addPage();
-        drawHeader(page);
-
-        let y = 55;
-        drawTableHeader(y);
-        y += 9;
-
-        weeklyDataFinal.slice(i, i + MAX_ROWS).forEach(row => {
-          drawRow(row, y);
-          y += 10;
-        });
-
-        page++;
-      }
-
-      pdf.setPage(totalPages);
       pdf.setFontSize(7);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(17, 24, 39);
+      const nombre = row.nombre.length > 20 ? row.nombre.substring(0, 20) + '...' : row.nombre;
+      pdf.text(nombre, x + 2, y + 6);
+      x += colW[0];
+
+      pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(107, 114, 128);
-      
-      const leyenda = [
-        '✓ = Asistencia',
-        '✗ = Falta',
-        '— = No aplica (futuro/inactivo/fin de semana)'
+      pdf.text(row.area || '—', x + 2, y + 6);
+      x += colW[1];
+
+      pdf.text(row.departamento || '—', x + 2, y + 6);
+      x += colW[2];
+
+      const dias = [
+        { 
+          v: row.jueves, 
+          f: row.esFuturo?.jueves, 
+          i: row.esInactivo?.jueves, 
+          fs: row.esFinDeSemana?.jueves,
+          fecha: calcularFechaParaDiaSemana(selectedWeek, 'jueves')
+        },
+        { 
+          v: row.viernes, 
+          f: row.esFuturo?.viernes, 
+          i: row.esInactivo?.viernes, 
+          fs: row.esFinDeSemana?.viernes,
+          fecha: calcularFechaParaDiaSemana(selectedWeek, 'viernes')
+        },
+        { 
+          v: row.lunes, 
+          f: row.esFuturo?.lunes, 
+          i: row.esInactivo?.lunes, 
+          fs: row.esFinDeSemana?.lunes,
+          fecha: calcularFechaParaDiaSemana(selectedWeek, 'lunes')
+        },
+        { 
+          v: row.martes, 
+          f: row.esFuturo?.martes, 
+          i: row.esInactivo?.martes, 
+          fs: row.esFinDeSemana?.martes,
+          fecha: calcularFechaParaDiaSemana(selectedWeek, 'martes')
+        },
+        { 
+          v: row.miercoles, 
+          f: row.esFuturo?.miercoles, 
+          i: row.esInactivo?.miercoles, 
+          fs: row.esFinDeSemana?.miercoles,
+          fecha: calcularFechaParaDiaSemana(selectedWeek, 'miercoles')
+        }
       ];
-      
-      let xPos = 15;
-      leyenda.forEach((text, index) => {
-        pdf.text(text, xPos, pageHeight - 12);
-        xPos += 50;
+
+      dias.forEach(d => {
+        const r = renderDay(d.v, d.f, d.i, d.fs, row.numero_empleado, d.fecha);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(...r.c);
+        pdf.text(r.t, x + colW[3] / 2, y + 6, { align: 'center' });
+        x += colW[3];
       });
 
-      pdf.save(`reporte_semana_${selectedWeek}.pdf`);
-    } catch (e) {
-      console.error(e);
-      alert('Error al generar PDF');
+      pdf.setTextColor(17, 24, 39);
+      const faltasTotales = ['jueves','viernes','lunes','martes','miercoles']
+        .filter(d => {
+          const esFinDeSemana = row.esFinDeSemana?.[d];
+          const fechaDia = calcularFechaParaDiaSemana(selectedWeek, d);
+          const esFechaInactivaSistema = esFechaInactiva(fechaDia);
+          
+          return (
+            row[d] !== 'X' && 
+            row[d] !== 'R' && // No contar retardos como faltas
+            !row.esFuturo?.[d] && 
+            !row.esInactivo?.[d] &&
+            !esFinDeSemana &&
+            !esFechaInactivaSistema
+          );
+        }).length;
+      pdf.text(String(faltasTotales), x + colW[8] / 2, y + 6, { align: 'center' });
+      x += colW[8];
+
+      // Mostrar tipos de falta por día (solo de esta semana)
+      let tiposPorDia = [];
+      dias.forEach((d, idx) => {
+        if (d.v !== 'X' && d.v !== 'R' && !d.f && !d.i && !d.fs) {
+          const r = renderDay(d.v, d.f, d.i, d.fs, row.numero_empleado, d.fecha);
+          if (r.texto) {
+            tiposPorDia.push(r.texto);
+          }
+        }
+      });
+      
+      const tiposTexto = tiposPorDia.length > 0 ? tiposPorDia.join(', ') : '—';
+      const tiposShort = tiposTexto.length > 20 ? tiposTexto.substring(0, 20) + '...' : tiposTexto;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(6);
+      pdf.setTextColor(75, 85, 99);
+      pdf.text(tiposShort, x + 2, y + 6);
+
+      pdf.setDrawColor(229, 231, 235);
+      pdf.line(10, y + 9, pageWidth - 10, y + 9);
+    };
+
+    let page = 1;
+    for (let i = 0; i < weeklyDataFinal.length; i += MAX_ROWS) {
+      if (page > 1) pdf.addPage();
+      drawHeader(page);
+
+      let y = 55;
+      drawTableHeader(y);
+      y += 9;
+
+      weeklyDataFinal.slice(i, i + MAX_ROWS).forEach(row => {
+        drawRow(row, y);
+        y += 10;
+      });
+
+      page++;
     }
-  };
+
+    pdf.setPage(totalPages);
+    pdf.setFontSize(7);
+    pdf.setTextColor(107, 114, 128);
+    
+    const leyenda = [
+      '✓ = Asistencia',
+      'R = Retardo',
+      '✗ = Falta',
+      'V = Vacaciones',
+      'I = Incapacidad',
+      'P = Préstamo',
+      '— = No aplica'
+    ];
+    
+    let xPos = 15;
+    leyenda.forEach((text, index) => {
+      pdf.text(text, xPos, pageHeight - 12);
+      xPos += 35;
+    });
+
+    pdf.save(`reporte_semana_${selectedWeek}.pdf`);
+  } catch (e) {
+    console.error(e);
+    alert('Error al generar PDF');
+  }
+};
 
   // Exportar registros de asistencia con diseño similar
   const exportAllToExcel = () => {
@@ -2372,11 +2469,11 @@ const calcularEstadisticasSemana = (datos) => {
         'Antes 9:00 AM',
         'Tipo de Registro',
         'Última Hora',
-        'Observación'
+        'Tipo de Falta'
       ];
 
       const rows = attendanceCheckData.map(e => {
-        const observacion = observaciones[e.id] || '';
+        const tipoFalta = tiposFalta[e.id] || '';
         
         return [
           e.id,
@@ -2387,7 +2484,7 @@ const calcularEstadisticasSemana = (datos) => {
           e.before9AM ? 'SÍ' : 'NO',
           e.attendanceType?.toUpperCase() || 'SIN REGISTRO',
           e.lastTime || '--:--',
-          observacion
+          tipoFalta
         ];
       });
 
@@ -2457,9 +2554,9 @@ const calcularEstadisticasSemana = (datos) => {
         }
       };
 
-      const observacionCellStyle = {
+      const tipoFaltaCellStyle = {
         font: { sz: 11, color: { rgb: '000000' } },
-        alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
         border: {
           top: { style: 'thin', color: { rgb: 'E0E0E0' } },
           bottom: { style: 'thin', color: { rgb: 'E0E0E0' } },
@@ -2506,7 +2603,24 @@ const calcularEstadisticasSemana = (datos) => {
               cell.s = nombreCellStyle;
             }
             else if (C === headers.length - 1) {
-              cell.s = observacionCellStyle;
+              const cellValue = ws[XLSX.utils.encode_cell({ r: R, c: C })]?.v;
+              const style = { ...tipoFaltaCellStyle };
+              
+              if (cellValue === 'Vacaciones') {
+                style.fill = { fgColor: { rgb: 'FFEB9C' } };
+                style.font = { ...style.font, color: { rgb: '9C5700' }, bold: true };
+              } else if (cellValue === 'Falta') {
+                style.fill = { fgColor: { rgb: 'FFC7CE' } };
+                style.font = { ...style.font, color: { rgb: '9C0006' }, bold: true };
+              } else if (cellValue === 'Incapacidad') {
+                style.fill = { fgColor: { rgb: 'DDEBF7' } };
+                style.font = { ...style.font, color: { rgb: '2F5496' }, bold: true };
+              } else if (cellValue === 'Prestamo') {
+                style.fill = { fgColor: { rgb: 'EADDFF' } };
+                style.font = { ...style.font, color: { rgb: '5A3D8A' }, bold: true };
+              }
+              
+              cell.s = style;
             }
             else {
               cell.s = cellStyle;
@@ -2524,7 +2638,7 @@ const calcularEstadisticasSemana = (datos) => {
         { wch: 14 },
         { wch: 18 },
         { wch: 12 },
-        { wch: 40 }
+        { wch: 15 }
       ];
 
       ws['!freeze'] = { xSplit: 0, ySplit: 10, topLeftCell: 'A12', activePane: 'bottomRight' };
@@ -2546,23 +2660,12 @@ const calcularEstadisticasSemana = (datos) => {
     try {
       const { jsPDF } = await import('jspdf');
 
-      let observacionesMap = {};
-      try {
-        const obsRes = await fetch('/api/observaciones');
-        if (obsRes.ok) {
-          const data = await obsRes.json();
-          data.forEach(obs => {
-            observacionesMap[obs.employeeId] = obs.text;
-          });
-        }
-      } catch {}
-
       const checkDataFinal = attendanceCheckData.map(employee => {
-        const observacion = observacionesMap[employee.id] || '—';
+        const tipoFalta = tiposFalta[employee.id] || '—';
         
         return {
           ...employee,
-          observacion: observacion.trim() ? observacion : '—'
+          tipoFalta: tipoFalta.trim() ? tipoFalta : '—'
         };
       });
 
@@ -2631,7 +2734,7 @@ const calcularEstadisticasSemana = (datos) => {
         });
       };
 
-      const colW = [22, 45, 28, 32, 18, 20, 22, 18, 38];
+      const colW = [22, 45, 28, 32, 18, 20, 22, 18, 20];
 
       const drawTableHeader = (y) => {
         pdf.setFillColor(243, 244, 246);
@@ -2641,7 +2744,7 @@ const calcularEstadisticasSemana = (datos) => {
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(55, 65, 81);
 
-        const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Asistió', 'Antes 9AM', 'Tipo', 'Hora', 'Observación'];
+        const headers = ['N° Emp', 'Nombre', 'Área', 'Departamento', 'Asistió', 'Antes 9AM', 'Tipo', 'Hora', 'Tipo Falta'];
         let x = 12;
         headers.forEach((h, i) => {
           pdf.text(h, x + colW[i] / 2, y + 6, { align: 'center' });
@@ -2698,9 +2801,9 @@ const calcularEstadisticasSemana = (datos) => {
         pdf.text(row.lastTime || '—', x + colW[7] / 2, y + 6, { align: 'center' });
         x += colW[7];
 
-        const obs = row.observacion || '—';
-        const obsShort = obs.length > 25 ? obs.substring(0, 25) + '...' : obs;
-        pdf.text(obsShort, x + 2, y + 6);
+        const tipoFalta = row.tipoFalta || '—';
+        const tipoFaltaShort = tipoFalta.length > 10 ? tipoFalta.substring(0, 10) + '...' : tipoFalta;
+        pdf.text(tipoFaltaShort, x + colW[8] / 2, y + 6, { align: 'center' });
 
         pdf.setDrawColor(229, 231, 235);
         pdf.line(10, y + 9, pageWidth - 10, y + 9);
@@ -3297,7 +3400,7 @@ const calcularEstadisticasSemana = (datos) => {
                   fetchDataFromDB();
                   fetchEmployees();
                   fetchAttendanceCheckData();
-                  fetchObservaciones();
+                  fetchTiposFalta();
                   
                   const weekNumber = getCurrentWeekNumber();
                   const weekRange = getWeekRangeByNumber(weekNumber);
@@ -3352,20 +3455,6 @@ const calcularEstadisticasSemana = (datos) => {
               </div>
             </div>
           </div>
-
-          {/* Registros Totales 
-          <div className="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow duration-200">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 bg-gradient-to-br from-purple-100 to-purple-50 p-3 rounded-lg">
-                <DocumentTextIcon className="w-6 h-6 text-purple-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Registros Totales</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_asistencias}</p>
-              </div>
-            </div>
-          </div>
-          */}
 
           {/* Registros Hoy */}
           <div className="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow duration-200">
@@ -3571,7 +3660,7 @@ const calcularEstadisticasSemana = (datos) => {
                             Última Hora
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Observaciones
+                            Tipo de Falta
                           </th>
                         </tr>
                       </thead>
@@ -3644,68 +3733,59 @@ const calcularEstadisticasSemana = (datos) => {
                                   {employee.lastTime || 'Sin registro'}
                                 </div>
                               </td>
-                              {/* En la tabla de verificación de asistencia */}
+                              {/* Columna de Tipo de Falta - SOLO SELECTOR */}
                               <td className="px-6 py-4">
                                 <div className="flex flex-col space-y-2">
                                   {/* Selector para tipo de falta */}
                                   <div className="mb-2">
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                                      Tipo de Falta
-                                    </label>
                                     <select
                                       value={tiposFalta[employee.id] || ''}
-                                      onChange={(e) => {
+                                      onChange={async (e) => {
+                                        const tipoFaltaValue = e.target.value;
+                                        
+                                        // Actualizar estado local inmediatamente
                                         setTiposFalta(prev => ({
                                           ...prev,
-                                          [employee.id]: e.target.value
+                                          [employee.id]: tipoFaltaValue
                                         }));
+                                        
+                                        // Si se selecciona una opción (no vacía), guardar automáticamente
+                                        if (tipoFaltaValue) {
+                                          await saveObservacion(
+                                            employee.id,
+                                            tipoFaltaValue,
+                                            getCurrentJaliscoDate()
+                                          );
+                                        }
                                       }}
                                       className="w-full text-sm border text-gray-800 border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     >
-                                      <option value="">Seleccionar motivo...</option>
+                                      <option value="">Seleccionar tipo de falta...</option>
                                       <option value="Vacaciones">Vacaciones</option>
                                       <option value="Falta">Falta</option>
                                       <option value="Incapacidad">Incapacidad</option>
+                                      <option value="Prestamo">Préstamo</option>
                                     </select>
+                                    
+                                    {/* Mostrar estado de guardado */}
+                                    {savingObservacion[employee.id] && (
+                                      <div className="mt-1 text-xs text-blue-600 flex items-center">
+                                        <ArrowPathIcon className="w-3 h-3 mr-1 animate-spin" />
+                                        Guardando...
+                                      </div>
+                                    )}
                                   </div>
                                   
-                                  {/* Textarea para observaciones adicionales */}
-                                  <textarea
-                                    value={observaciones[employee.id] || ''}
-                                    onChange={(e) => setObservaciones(prev => ({
-                                      ...prev,
-                                      [employee.id]: e.target.value
-                                    }))}
-                                    placeholder="Observaciones adicionales..."
-                                    className="w-full text-gray-800 text-sm border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    rows="2"
-                                  />
-                                  
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => saveObservacion(
-                                        employee.id, 
-                                        observaciones[employee.id] || '', 
-                                        tiposFalta[employee.id] || '',
-                                        getCurrentJaliscoDate()
-                                      )}
-                                      disabled={savingObservacion[employee.id]}
-                                      className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                                    >
-                                      <PaperAirplaneIcon className="w-3 h-3 mr-1" />
-                                      {savingObservacion[employee.id] ? 'Guardando...' : 'Guardar'}
-                                    </button>
-                                    
-                                    {/* Botón para limpiar */}
-                                    <button
-                                      onClick={() => {
-                                        setTiposFalta(prev => ({ ...prev, [employee.id]: '' }));
-                                        setObservaciones(prev => ({ ...prev, [employee.id]: '' }));
-                                      }}
-                                      className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors"
-                                    >
-                                      Limpiar
-                                    </button>
+                                  {/* Información sobre qué se está guardando */}
+                                  <div className="text-xs text-gray-500">
+                                    {tiposFalta[employee.id] ? (
+                                      <div className="flex items-center text-green-600">
+                                        <CheckCircleIcon className="w-3 h-3 mr-1" />
+                                        <span>Guardado: {tiposFalta[employee.id]} para hoy</span>
+                                      </div>
+                                    ) : (
+                                      "Selecciona una opción para guardar"
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -3811,6 +3891,9 @@ const calcularEstadisticasSemana = (datos) => {
                                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                             Puesto
                                           </th>
+                                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Tipo de Falta
+                                          </th>
                                         </tr>
                                       </thead>
                                       <tbody className="bg-white divide-y divide-gray-200">
@@ -3829,6 +3912,11 @@ const calcularEstadisticasSemana = (datos) => {
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                               <div className="text-sm text-gray-900">{employee.departamento}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                              <div className="text-sm font-medium text-gray-900">
+                                                {tiposFalta[employee.id] || '—'}
+                                              </div>
                                             </td>
                                           </tr>
                                         ))}
@@ -3958,7 +4046,7 @@ const calcularEstadisticasSemana = (datos) => {
                             <svg className="w-4 h-4 mr-2 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
-                            Exportar Excel (con observaciones)
+                            Exportar Excel (con tipos de falta)
                           </button>
                           <button
                             onClick={() => {
@@ -4081,84 +4169,90 @@ const calcularEstadisticasSemana = (datos) => {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {paginatedWeeklyData.map((row, index) => {
                           // En el renderDayCell dentro del map de paginatedWeeklyData
-const renderDayCell = (dayName) => {
-  const valor = row[dayName]; // 'X', 'R' o ''
-  const esFuturo = row.esFuturo?.[dayName];
-  const esInactivo = row.esInactivo?.[dayName];
-  const esFinDeSemana = row.esFinDeSemana?.[dayName];
-  
-  // Día futuro
-  if (esFuturo) {
-    return (
-      <div className="flex justify-center">
-        <div 
-          className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
-          title="Día futuro (no cuenta como falta)"
-        >
-          <ClockIcon className="w-4 h-4 text-gray-400" />
-        </div>
-      </div>
-    );
-  }
-  
-  // Día inactivo (5 de enero de 2026)
-  if (esInactivo) {
-    return (
-      <div className="flex justify-center">
-        <div 
-          className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
-          title="Sistema no activo (no cuenta como falta)"
-        >
-          <span className="text-xs text-gray-500">-</span>
-        </div>
-      </div>
-    );
-  }
-  
-  // Fin de semana (sábado o domingo)
-  if (esFinDeSemana) {
-    return (
-      <div className="flex justify-center">
-        <div 
-          className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center"
-          title="Fin de semana (no laboral)"
-        >
-          <span className="text-xs text-blue-500">FS</span>
-        </div>
-      </div>
-    );
-  }
-  
-  // Día laboral - mostrar asistencia real
-  if (valor === 'X') {
-    return (
-      <div 
-        className="w-6 h-6 rounded-full bg-green-100 border border-green-300 flex items-center justify-center"
-        title="Asistió (antes de 9:00 AM)"
-      >
-        <CheckIcon className="w-4 h-4 text-green-600" />
-      </div>
-    );
-  } else if (valor === 'R') {
-    return (
-      <div 
-        className="w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 flex items-center justify-center"
-        title="Retardo (después de 9:00 AM)"
-      >
-        <span className="text-xs text-yellow-700 font-bold">R</span>
-      </div>
-    );
-  } else {
-    return (
-      <div 
-        className="w-6 h-6 rounded-full bg-red-100 border border-red-300 flex items-center justify-center"
-        title="Ausente (falta)"
-      >
-        <XMarkIcon className="w-4 h-4 text-red-600" />
-      </div>
-    );
-  }
-};
+                          const renderDayCell = (dayName) => {
+                            const valor = row[dayName]; // 'X', 'R' o ''
+                            const esFuturo = row.esFuturo?.[dayName];
+                            const esInactivo = row.esInactivo?.[dayName];
+                            const esFinDeSemana = row.esFinDeSemana?.[dayName];
+
+                            // Obtener la fecha actual del día
+                            const fechaDia = calcularFechaParaDiaSemana(selectedWeek, dayName);
+                            
+                            // Verificar si es fecha inactiva del sistema
+                            const esFechaInactivaSistema = esFechaInactiva(fechaDia);
+                            
+                            // Día futuro
+                            if (esFuturo) {
+                              return (
+                                <div className="flex justify-center">
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
+                                    title="Día futuro (no cuenta como falta)"
+                                  >
+                                    <ClockIcon className="w-4 h-4 text-gray-400" />
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            // Día inactivo del sistema (5 de enero o 2 de febrero 2026)
+                            if (esInactivo || esFechaInactivaSistema) {
+                              return (
+                                <div className="flex justify-center">
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-gray-100 border border-gray-300 flex items-center justify-center"
+                                    title={esFechaInactivaSistema ? `Sistema no activo - ${fechaDia}` : "Sistema no activo (no cuenta como falta)"}
+                                  >
+                                    <span className="text-xs text-gray-500">-</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            // Fin de semana (sábado o domingo)
+                            if (esFinDeSemana) {
+                              return (
+                                <div className="flex justify-center">
+                                  <div 
+                                    className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center"
+                                    title="Fin de semana (no laboral)"
+                                  >
+                                    <span className="text-xs text-blue-500">FS</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            
+                            // Día laboral - mostrar asistencia real
+                            if (valor === 'X') {
+                              return (
+                                <div 
+                                  className="w-6 h-6 rounded-full bg-green-100 border border-green-300 flex items-center justify-center"
+                                  title="Asistió (antes de 9:00 AM)"
+                                >
+                                  <CheckIcon className="w-4 h-4 text-green-600" />
+                                </div>
+                              );
+                            } else if (valor === 'R') {
+                              return (
+                                <div 
+                                  className="w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 flex items-center justify-center"
+                                  title="Retardo (después de 9:00 AM)"
+                                >
+                                  <span className="text-xs text-yellow-700 font-bold">R</span>
+                                </div>
+                              );
+                            } else {
+                              return (
+                                <div 
+                                  className="w-6 h-6 rounded-full bg-red-100 border border-red-300 flex items-center justify-center"
+                                  title="Ausente (falta)"
+                                >
+                                  <XMarkIcon className="w-4 h-4 text-red-600" />
+                                </div>
+                              );
+                            }
+                          };
                           
                           return (
                             <tr key={index} className="hover:bg-gray-50">

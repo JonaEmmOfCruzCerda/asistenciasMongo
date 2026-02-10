@@ -8,32 +8,65 @@ export async function GET(solicitud) {
   try {
     await conectarDB();
     
-    // Obtener parámetros de consulta
     const { searchParams } = new URL(solicitud.url);
     const employeeId = searchParams.get('employeeId');
     const fecha = searchParams.get('fecha');
-    const fechaInicio = searchParams.get('fechaInicio');
-    const fechaFin = searchParams.get('fechaFin');
+    const fecha_inicio = searchParams.get('fecha_inicio');
+    const fecha_fin = searchParams.get('fecha_fin');
+    const start = searchParams.get('start'); // Para compatibilidad
+    const end = searchParams.get('end'); // Para compatibilidad
     
-    // Construir filtro de consulta
     const filtro = {};
     
     if (employeeId) {
       filtro.employeeId = employeeId;
     }
     
+    // FILTRO POR FECHA ESPECÍFICA (para tabla diaria)
     if (fecha) {
       filtro.fecha = fecha;
     }
     
-    if (fechaInicio && fechaFin) {
-      filtro.fecha = {
-        $gte: fechaInicio,
-        $lte: fechaFin
+    // FILTRO POR RANGO DE FECHAS (para exportación semanal)
+    // Usar fecha_inicio/fecha_fin o start/end
+    const inicioParam = fecha_inicio || start;
+    const finParam = fecha_fin || end;
+    
+    if (inicioParam && finParam) {
+      // Convertir fechas de formato DD/MM/YYYY a YYYY-MM-DD para comparación
+      const convertirFecha = (fechaStr) => {
+        if (!fechaStr) return null;
+        
+        // Si ya está en formato DD/MM/YYYY
+        if (fechaStr.includes('/')) {
+          const [dia, mes, año] = fechaStr.split('/');
+          return `${año}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+        }
+        return fechaStr;
       };
+      
+      const fechaInicio = convertirFecha(inicioParam);
+      const fechaFin = convertirFecha(finParam);
+      
+      if (fechaInicio && fechaFin) {
+        // Buscar todas las observaciones y filtrar por rango
+        const todasObservaciones = await Observacion.find({}).lean();
+        
+        const observacionesFiltradas = todasObservaciones.filter(obs => {
+          if (!obs.fecha) return false;
+          
+          // Convertir fecha de observación a formato comparable
+          const [diaObs, mesObs, añoObs] = obs.fecha.split('/');
+          const fechaObsFormatted = `${añoObs}-${mesObs.padStart(2, '0')}-${diaObs.padStart(2, '0')}`;
+          
+          return fechaObsFormatted >= fechaInicio && fechaObsFormatted <= fechaFin;
+        });
+        
+        return NextResponse.json(observacionesFiltradas);
+      }
     }
     
-    // Obtener observaciones ordenadas por fecha descendente
+    // Si no hay filtro de rango, devolver normalmente
     const observaciones = await Observacion.find(filtro).sort({ fecha: -1, createdAt: -1 });
     
     return NextResponse.json(observaciones);
@@ -45,7 +78,6 @@ export async function GET(solicitud) {
 }
 
 // POST: Crear o actualizar observación
-// app/api/observaciones/route.js - Función POST
 export async function POST(solicitud) {
   try {
     await conectarDB();
@@ -53,7 +85,6 @@ export async function POST(solicitud) {
     
     console.log('📝 Datos recibidos para observación:', datos);
     
-    // Validar datos requeridos
     if (!datos.employeeId || !datos.fecha) {
       return NextResponse.json(
         { error: 'employeeId y fecha son requeridos' },
@@ -65,11 +96,6 @@ export async function POST(solicitud) {
     const textoObservacion = (datos.text && datos.text.trim() !== '') ? datos.text : ' ';
     const tipoFalta = datos.tipoFalta || '';
     
-    console.log('🔧 Valores procesados:', { 
-      text: textoObservacion, 
-      tipoFalta: tipoFalta 
-    });
-    
     // Buscar si ya existe una observación para este empleado en esta fecha
     const observacionExistente = await Observacion.findOne({
       employeeId: datos.employeeId,
@@ -79,7 +105,6 @@ export async function POST(solicitud) {
     let observacion;
     
     if (observacionExistente) {
-      console.log('📝 Actualizando observación existente');
       // Actualizar observación existente
       observacionExistente.text = textoObservacion;
       observacionExistente.tipoFalta = tipoFalta;
@@ -87,30 +112,27 @@ export async function POST(solicitud) {
       observacionExistente.date = new Date();
       
       observacion = await observacionExistente.save();
+      console.log('🔄 Observación actualizada para', datos.employeeId, 'fecha', datos.fecha);
     } else {
-      console.log('🆕 Creando nueva observación');
-      // Crear nueva observación - usar un espacio si está vacío
+      // Crear nueva observación
       observacion = await Observacion.create({
         employeeId: datos.employeeId,
         text: textoObservacion,
         tipoFalta: tipoFalta,
         fecha: datos.fecha,
-        date: datos.date || new Date(),
+        date: new Date(),
         adminId: datos.adminId || 'admin'
       });
+      console.log('✅ Nueva observación creada para', datos.employeeId, 'fecha', datos.fecha);
     }
     
-    console.log('✅ Observación guardada exitosamente:', observacion);
     return NextResponse.json(observacion);
     
   } catch (error) {
     console.error('❌ Error al guardar observación:', error);
-    console.error('❌ Detalles del error:', error.message);
-    
     return NextResponse.json({ 
       error: 'Error al guardar observación',
-      details: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      details: error.message
     }, { status: 500 });
   }
 }
@@ -140,44 +162,5 @@ export async function DELETE(solicitud) {
   } catch (error) {
     console.error('Error al eliminar observación:', error);
     return NextResponse.json({ error: 'Error al eliminar observación' }, { status: 500 });
-  }
-}
-
-// PUT: Actualizar observación específica
-export async function PUT(solicitud) {
-  try {
-    await conectarDB();
-    const datos = await solicitud.json();
-    
-    if (!datos.id) {
-      return NextResponse.json(
-        { error: 'ID es requerido' },
-        { status: 400 }
-      );
-    }
-    
-    const observacion = await Observacion.findByIdAndUpdate(
-      datos.id,
-      {
-        text: datos.text || '',
-        tipoFalta: datos.tipoFalta || '',
-        adminId: datos.adminId || 'admin',
-        date: new Date()
-      },
-      { new: true }
-    );
-    
-    if (!observacion) {
-      return NextResponse.json(
-        { error: 'Observación no encontrada' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(observacion);
-    
-  } catch (error) {
-    console.error('Error al actualizar observación:', error);
-    return NextResponse.json({ error: 'Error al actualizar observación' }, { status: 500 });
   }
 }
